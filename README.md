@@ -208,6 +208,7 @@ Some of the suported boards, see yours? Give LiteX-Boards a try!
     ├── terasic_deca
     ├── terasic_sockit
     ├── tinyfpga_bx
+    ├── tinyvision_ai_upduino_v3
     ├── trellisboard
     ├── trenz_c10lprefkit
     ├── trenz_cyc1000
