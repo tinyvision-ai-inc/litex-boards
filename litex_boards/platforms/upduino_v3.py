@@ -1,4 +1,5 @@
 # litex-boards platform file
+from migen import *
 from litex.build.generic_platform import *
 from litex.build.lattice import LatticePlatform
 from litex.build.lattice.programmer import IceStormProgrammer
