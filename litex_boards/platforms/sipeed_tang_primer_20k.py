@@ -16,17 +16,10 @@ from litex.build.openfpgaloader import OpenFPGALoader
 # IOs ----------------------------------------------------------------------------------------------
 
 _io = [
-    # Clk / Rst
+    # Clk / Rst.
     ("clk27",  0, Pins("H11"), IOStandard("LVCMOS33")),
 
-    # Serial
-    ("serial", 0,
-        Subsignal("rx", Pins("T13")),
-        Subsignal("tx", Pins("M11")),
-        IOStandard("LVCMOS33")
-    ),
-
-    # SPIFlash
+    # SPIFlash.
     ("spiflash", 0,
         Subsignal("cs_n", Pins("M9"),  IOStandard("LVCMOS33")),
         Subsignal("clk",  Pins("L10"), IOStandard("LVCMOS33")),
@@ -34,7 +27,7 @@ _io = [
         Subsignal("mosi", Pins("R10"), IOStandard("LVCMOS33")),
     ),
 
-    # SDCard
+    # SDCard.
     ("spisdcard", 0,
         Subsignal("clk",  Pins("N10")),
         Subsignal("mosi", Pins("R14")),
@@ -111,14 +104,31 @@ _connectors = [
 
 _dock_io = [
     # Leds
-    ("user_led", 0,  Pins( "CARD1:44"), IOStandard("LVCMOS18")),
-    ("user_led", 1,  Pins( "CARD1:46"), IOStandard("LVCMOS18")),
-    ("user_led", 3,  Pins( "CARD1:40"), IOStandard("LVCMOS18")),
-    ("user_led", 2,  Pins( "CARD1:42"), IOStandard("LVCMOS18")),
-    ("user_led", 4,  Pins( "CARD1:98"), IOStandard("LVCMOS18")),
-    ("user_led", 5,  Pins("CARD1:136"), IOStandard("LVCMOS18")),
+    ("led", 0,  Pins( "CARD1:44"), IOStandard("LVCMOS18")),
+    ("led", 1,  Pins( "CARD1:46"), IOStandard("LVCMOS18")),
+    ("led", 3,  Pins( "CARD1:40"), IOStandard("LVCMOS18")),
+    ("led", 2,  Pins( "CARD1:42"), IOStandard("LVCMOS18")),
+    ("led", 4,  Pins( "CARD1:98"), IOStandard("LVCMOS18")),
+    ("led", 5,  Pins("CARD1:136"), IOStandard("LVCMOS18")),
 
-    # HDMI
+    # RGB Led.
+    ("rgb_led", 0, Pins("CARD1:45"), IOStandard("LVCMOS18")),
+
+    # Buttons.
+    ("btn_n", 0,  Pins( "CARD1:15"), IOStandard("LVCMOS18")),
+    ("btn_n", 1,  Pins("CARD1:165"), IOStandard("LVCMOS15")),
+    ("btn_n", 2,  Pins("CARD1:163"), IOStandard("LVCMOS15")),
+    ("btn_n", 3,  Pins("CARD1:159"), IOStandard("LVCMOS15")),
+    ("btn_n", 4,  Pins("CARD1:157"), IOStandard("LVCMOS15")),
+
+    # Serial.
+    ("serial", 0,
+        Subsignal("rx", Pins( "CARD1:1")),
+        Subsignal("tx", Pins("CARD1:11")),
+        IOStandard("LVCMOS33")
+    ),
+
+    # HDMI.
     ("hdmi", 0,
         Subsignal("clk_p",   Pins("CARD1:132")),
         Subsignal("clk_n",   Pins("CARD1:130")),
@@ -133,6 +143,26 @@ _dock_io = [
         Subsignal("sda", Pins("CARD1:95"),  IOStandard("LVCMOS18")),
         Subsignal("scl", Pins("CARD1:97"),  IOStandard("LVCMOS18")),
         Misc("PULL_MODE=NONE"),
+    ),
+
+    # LCD.
+    ("lcd", 0,
+        # Control.
+        Subsignal("rst",   Pins("CARD1:123")),
+        Subsignal("bl",    Pins("CARD1:186")),
+        Subsignal("sda",   Pins("CARD1: 95")),
+        Subsignal("scl",   Pins("CARD1: 97")),
+        Subsignal("int",   Pins("CARD1:125")),
+
+        # Video.
+        Subsignal("clk",   Pins("CARD1:183")),
+        Subsignal("de",    Pins("CARD1:101")),
+        Subsignal("hsync", Pins("CARD1:107")),
+        Subsignal("vsync", Pins("CARD1:103")),
+        Subsignal("r",     Pins("CARD1:193 CARD1:191 CARD1:181 CARD1:177 CARD1:175")),
+        Subsignal("g",     Pins("CARD1:180 CARD1:131 CARD1:129 CARD1:194 CARD1:192 CARD1:182")),
+        Subsignal("b",     Pins("CARD1:121 CARD1:119 CARD1:115 CARD1:113 CARD1:109")),
+        IOStandard("LVCMOS18")
     ),
 
     # RMII Ethernet
@@ -167,6 +197,7 @@ class Platform(GowinPlatform):
         self.toolchain.options["use_sspi_as_gpio"]  = 1
         self.toolchain.options["use_ready_as_gpio"] = 1
         self.toolchain.options["use_done_as_gpio"]  = 1
+        self.toolchain.options["rw_check_on_ram"]   = 1
 
     def create_programmer(self, kit="openfpgaloader"):
         return OpenFPGALoader(cable="ft2232")
