@@ -62,9 +62,10 @@ _io = [
 
     # I2C
     ("i2c", 0,
-        Subsignal("scl", Pins("K21")),
-        Subsignal("sda", Pins("L21")),
-        IOStandard("LVCMOS25")),
+        Subsignal("scl", Pins("K21"), Misc("PULLUP=True")),
+        Subsignal("sda", Pins("L21"), Misc("PULLUP=True")),
+        IOStandard("LVCMOS25")
+    ),
 
     # Serial
     ("serial", 0,
@@ -554,7 +555,7 @@ set_property CONFIG_VOLTAGE 2.5 [current_design]
         self.toolchain.additional_commands = ["write_cfgmem -force -format bin -interface spix4 -size 16 -loadbit \"up 0x0 {build_name}.bit\" -file {build_name}.bin"]
 
     def create_programmer(self):
-        return OpenOCD("openocd_xc7_ft2232.cfg", "bscan_spi_xc7a325t.bit")
+        return OpenOCD("openocd_xc7_ft2232.cfg", "bscan_spi_xc7k325t.bit")
 
     def do_finalize(self, fragment):
         XilinxPlatform.do_finalize(self, fragment)
