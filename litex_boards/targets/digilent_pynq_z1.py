@@ -8,8 +8,9 @@
 
 from migen import *
 
+from litex.gen import LiteXModule
+
 from litex_boards.platforms import digilent_pynq_z1
-from litex.build.xilinx.vivado import vivado_build_args, vivado_build_argdict
 
 from litex.soc.interconnect import axi
 from litex.soc.interconnect import wishbone
@@ -22,12 +23,12 @@ from litex.soc.cores.video import VideoS7HDMIPHY
 from litex.soc.cores.led import LedChaser
 
 # CRG ----------------------------------------------------------------------------------------------
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq, toolchain, use_ps7_clk=False, with_video_pll=False):
-        self.rst = Signal()
-        self.clock_domains.cd_sys    = ClockDomain()
-        self.clock_domains.cd_hdmi   = ClockDomain()
-        self.clock_domains.cd_hdmi5x = ClockDomain()
+        self.rst       = Signal()
+        self.cd_sys    = ClockDomain()
+        self.cd_hdmi   = ClockDomain()
+        self.cd_hdmi5x = ClockDomain()
 
         # # #
 
@@ -40,7 +41,7 @@ class _CRG(Module):
             self.comb += ClockSignal("sys").eq(ClockSignal("ps7"))
             self.comb += ResetSignal("sys").eq(ResetSignal("ps7") | self.rst)
         else:
-            self.submodules.pll = pll = S7PLL(speedgrade=-1)
+            self.pll = pll = S7PLL(speedgrade=-1)
             self.comb += pll.reset.eq(self.rst)
             pll.register_clkin(clk125, 125e6)
             pll.create_clkout(self.cd_sys, sys_clk_freq)
@@ -48,7 +49,7 @@ class _CRG(Module):
 
         # Video PLL.
         if with_video_pll:
-            self.submodules.video_pll = video_pll = S7MMCM(speedgrade=-1)
+            self.video_pll = video_pll = S7MMCM(speedgrade=-1)
             video_pll.reset.eq(self.rst)
             video_pll.register_clkin(clk125, 125e6)
             video_pll.create_clkout(self.cd_hdmi,   40e6)
@@ -57,12 +58,15 @@ class _CRG(Module):
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, toolchain="vivado", sys_clk_freq=int(100e6), with_led_chaser=True,
-                with_video_terminal=False, with_video_framebuffer=False, **kwargs):
+    def __init__(self, toolchain="vivado", sys_clk_freq=100e6,
+        with_led_chaser        = True,
+        with_video_terminal    = False,
+        with_video_framebuffer = False,
+        **kwargs):
         platform = digilent_pynq_z1.Platform()
 
         # CRG --------------------------------------------------------------------------------------
-        self.submodules.crg = _CRG(platform, sys_clk_freq, toolchain, with_video_pll=with_video_terminal)
+        self.crg = _CRG(platform, sys_clk_freq, toolchain, with_video_pll=with_video_terminal)
 
         # SoCCore ----------------------------------------------------------------------------------
         SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX SoC on PYNQ Z1", **kwargs)
@@ -85,39 +89,33 @@ class BaseSoC(SoCCore):
 
         # Video ------------------------------------------------------------------------------------
         if with_video_terminal:
-            self.submodules.videophy = VideoS7HDMIPHY(platform.request("hdmi_tx"), clock_domain="hdmi")
+            self.videophy = VideoS7HDMIPHY(platform.request("hdmi_tx"), clock_domain="hdmi")
             self.add_video_terminal(phy=self.videophy, timings="800x600@60Hz", clock_domain="hdmi")
 
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
-            self.submodules.leds = LedChaser(
+            self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
                 sys_clk_freq = sys_clk_freq)
 
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on PYNQ Z1")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",               action="store_true", help="Build design.")
-    target_group.add_argument("--load",                action="store_true", help="Load bitstream.")
-    target_group.add_argument("--sys-clk-freq",        default=125e6,       help="System clock frequency.")
-    target_group.add_argument("--with-video-terminal", action="store_true", help="Enable Video Terminal (HDMI).")
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=digilent_pynq_z1.Platform, description="LiteX SoC on PYNQ Z1.")
+    parser.add_target_argument("--sys-clk-freq",        default=125e6, type=float, help="System clock frequency.")
+    parser.add_target_argument("--with-video-terminal", action="store_true",       help="Enable Video Terminal (HDMI).")
 
-    builder_args(parser)
-    soc_core_args(parser)
-    vivado_build_args(parser)
     args = parser.parse_args()
 
     soc = BaseSoC(
-        sys_clk_freq        = int(float(args.sys_clk_freq)),
+        sys_clk_freq        = args.sys_clk_freq,
         with_video_terminal = args.with_video_terminal,
-        **soc_core_argdict(args)
+        **parser.soc_argdict
     )
-    builder = Builder(soc, **builder_argdict(args))
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build(**vivado_build_argdict(args))
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()

@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 from litex.build.generic_platform import *
-from litex.build.xilinx import XilinxPlatform
+from litex.build.xilinx import Xilinx7SeriesPlatform
 from litex.build.openocd import OpenOCD
 
 # IOs ----------------------------------------------------------------------------------------------
@@ -111,7 +111,7 @@ _io = [
         Subsignal("data1_p", Pins("AC8")),
         Subsignal("data1_n", Pins("AD8")),
         Subsignal("data2_p", Pins("AE9")),
-        Subsignal("data2_n", Pins("AD10")),
+        Subsignal("data2_n", Pins("AF9")),
         # FIXME: Find a way to avoid RX pads.
         Subsignal("rx0_p", Pins("AE11")),
         Subsignal("rx0_n", Pins("AF11")),
@@ -125,12 +125,12 @@ _io = [
 
 # Platform -----------------------------------------------------------------------------------------
 
-class Platform(XilinxPlatform):
+class Platform(Xilinx7SeriesPlatform):
     default_clk_name   = "clk100"
     default_clk_period = 1e9/100e6
 
     def __init__(self, toolchain="vivado"):
-        XilinxPlatform.__init__(self, "xc7a100t-fgg676-3", _io, toolchain=toolchain)
+        Xilinx7SeriesPlatform.__init__(self, "xc7a100t-fgg676-3", _io, toolchain=toolchain)
         self.toolchain.bitstream_commands = \
             ["set_property BITSTREAM.CONFIG.SPI_BUSWIDTH 4 [current_design]"]
         self.toolchain.additional_commands = \
@@ -143,6 +143,6 @@ class Platform(XilinxPlatform):
         return OpenOCD("openocd_xc7_ft232.cfg", "bscan_spi_xc7a100t.bit")
 
     def do_finalize(self, fragment):
-        XilinxPlatform.do_finalize(self, fragment)
+        Xilinx7SeriesPlatform.do_finalize(self, fragment)
         self.add_period_constraint(self.lookup_request("clk100", loose=True), 1e9/100e6)
         self.add_period_constraint(self.lookup_request("clk24",  loose=True), 1e9/24e6)

@@ -8,11 +8,12 @@
 
 from migen import *
 
+from litex.gen import LiteXModule
+
 from litex.build.io import CRG
 
 from litex_boards.platforms import tinyfpga_bx
 
-from litex.build.lattice.icestorm import icestorm_args, icestorm_argdict
 from litex.soc.integration.soc_core import *
 from litex.soc.integration.soc import SoCRegion
 from litex.soc.integration.builder import *
@@ -24,11 +25,11 @@ mB = 1024*kB
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, bios_flash_offset, sys_clk_freq=int(16e6), with_led_chaser=True, **kwargs):
+    def __init__(self, bios_flash_offset, sys_clk_freq=16e6, with_led_chaser=True, **kwargs):
         platform = tinyfpga_bx.Platform()
 
         # CRG --------------------------------------------------------------------------------------
-        self.submodules.crg = CRG(platform.request("clk16"))
+        self.crg = CRG(platform.request("clk16"))
 
         # SoCCore ----------------------------------------------------------------------------------
         # Disable Integrated ROM since too large for iCE40.
@@ -50,32 +51,27 @@ class BaseSoC(SoCCore):
 
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
-            self.submodules.leds = LedChaser(
+            self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
                 sys_clk_freq = sys_clk_freq)
 
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on TinyFPGA BX")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",             action="store_true", help="Build design.")
-    target_group.add_argument("--bios-flash-offset", default="0x50000",   help="BIOS offset in SPI Flash.")
-    target_group.add_argument("--sys-clk-freq",      default=16e6,        help="System clock frequency.")
-    builder_args(parser)
-    soc_core_args(parser)
-    icestorm_args(parser)
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=tinyfpga_bx.Platform, description="LiteX SoC on TinyFPGA BX.")
+    parser.add_target_argument("--bios-flash-offset", default="0x50000",         help="BIOS offset in SPI Flash.")
+    parser.add_target_argument("--sys-clk-freq",      default=16e6, type=float,  help="System clock frequency.")
     args = parser.parse_args()
 
     soc = BaseSoC(
          bios_flash_offset = int(args.bios_flash_offset, 0),
-         sys_clk_freq      = int(float(args.sys_clk_freq)),
-         **soc_core_argdict(args)
+         sys_clk_freq      = args.sys_clk_freq,
+         **parser.soc_argdict
     )
-    builder = Builder(soc, **builder_argdict(args))
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build(**icestorm_argdict(args))
+        builder.build(**parser.toolchain_argdict)
 
 if __name__ == "__main__":
     main()

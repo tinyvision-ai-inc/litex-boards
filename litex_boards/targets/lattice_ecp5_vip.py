@@ -10,9 +10,9 @@
 from migen import *
 from migen.genlib.resetsync import AsyncResetSynchronizer
 
-from litex_boards.platforms import lattice_ecp5_vip
+from litex.gen import LiteXModule
 
-from litex.build.lattice.trellis import trellis_args, trellis_argdict
+from litex_boards.platforms import lattice_ecp5_vip
 
 from litex.soc.cores.clock import *
 from litex.soc.integration.soc_core import *
@@ -28,14 +28,14 @@ from litex.soc.cores.bitbang import I2CMaster
 
 # CRG ----------------------------------------------------------------------------------------------
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq):
-        self.rst = Signal()
-        self.clock_domains.cd_init    = ClockDomain()
-        self.clock_domains.cd_por     = ClockDomain()
-        self.clock_domains.cd_sys     = ClockDomain()
-        self.clock_domains.cd_sys2x   = ClockDomain()
-        self.clock_domains.cd_sys2x_i = ClockDomain()
+        self.rst        = Signal()
+        self.cd_init    = ClockDomain()
+        self.cd_por     = ClockDomain()
+        self.cd_sys     = ClockDomain()
+        self.cd_sys2x   = ClockDomain()
+        self.cd_sys2x_i = ClockDomain()
 
         # # #
         self.stop  = Signal()
@@ -53,7 +53,7 @@ class _CRG(Module):
         self.sync.por += If(~por_done, por_count.eq(por_count - 1))
 
         # PLL
-        self.submodules.pll = pll = ECP5PLL()
+        self.pll = pll = ECP5PLL()
         self.comb += pll.reset.eq(~por_done | ~rst_n | self.rst)
         pll.register_clkin(clk100, 100e6)
         pll.create_clkout(self.cd_sys2x_i, 2*sys_clk_freq)
@@ -73,7 +73,7 @@ class _CRG(Module):
         ]
 
         # HDMI
-        self.clock_domains.cd_hdmi   = ClockDomain()
+        self.cd_hdmi   = ClockDomain()
         #pll.create_clkout(self.cd_hdmi, 148.5e6) # for terminal "1920x1080@60Hz"
         #pll.create_clkout(self.cd_hdmi, 160e6) # for terminal "1920x1080@60Hz"
         #pll.create_clkout(self.cd_hdmi, 80e6) # for terminal "1920x1080@30Hz"
@@ -83,7 +83,7 @@ class _CRG(Module):
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, sys_clk_freq=int(50e6), toolchain="trellis",
+    def __init__(self, sys_clk_freq=50e6, toolchain="trellis",
         with_led_chaser        = True,
         with_video_terminal    = True,
         with_video_framebuffer = False,
@@ -91,13 +91,13 @@ class BaseSoC(SoCCore):
         platform = lattice_ecp5_vip.Platform(toolchain=toolchain)
 
         # CRG --------------------------------------------------------------------------------------
-        self.submodules.crg = _CRG(platform, sys_clk_freq)
+        self.crg = _CRG(platform, sys_clk_freq)
 
         # SoCCore ----------------------------------------------------------------------------------
         SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX SoC on ECP5 Evaluation Board", **kwargs)
 
         # DDR3 SDRAM -------------------------------------------------------------------------------
-        self.submodules.ddrphy = ECP5DDRPHY(
+        self.ddrphy = ECP5DDRPHY(
             platform.request("ddram"),
             sys_clk_freq=sys_clk_freq)
         self.comb += self.crg.stop.eq(self.ddrphy.init.stop)
@@ -111,8 +111,8 @@ class BaseSoC(SoCCore):
         # Video ------------------------------------------------------------------------------------
         if with_video_terminal or with_video_framebuffer:
             pads = platform.request("hdmi")
-            self.submodules.videophy = VideoVGAPHY(pads, clock_domain="hdmi")
-            self.submodules.videoi2c = I2CMaster(pads)
+            self.videophy = VideoVGAPHY(pads, clock_domain="hdmi")
+            self.videoi2c = I2CMaster(pads)
 
             # # 1920x1080@60Hz
             # pixel_clock_hz = 160e6
@@ -164,7 +164,7 @@ class BaseSoC(SoCCore):
                 
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
-            self.submodules.leds = LedChaser(
+            self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
                 sys_clk_freq = sys_clk_freq)
 
@@ -186,26 +186,18 @@ class BaseSoC(SoCCore):
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on ECP5 Evaluation Board")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",        action="store_true", help="Build design")
-    target_group.add_argument("--load",         action="store_true", help="Load bitstream")
-    target_group.add_argument("--toolchain",    default="trellis",   help="FPGA toolchain: trellis (default) or diamond")
-    target_group.add_argument("--sys-clk-freq", default=60e6,        help="System clock frequency (default: 60MHz)")
-    builder_args(parser)
-    soc_core_args(parser)
-    trellis_args(parser)
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=lattice_ecp5_vip.Platform, description="LiteX SoC on ECP5 Evaluation Board.")
+    parser.add_target_argument("--sys-clk-freq", default=60e6, type=float, help="System clock frequency.")
     args = parser.parse_args()
 
     soc = BaseSoC(
         toolchain    = args.toolchain,
-        sys_clk_freq = int(float(args.sys_clk_freq)),
-        **soc_core_argdict(args))
-    builder = Builder(soc, **builder_argdict(args))
-    builder_kargs = trellis_argdict(args) if args.toolchain == "trellis" else {}
+        sys_clk_freq = args.sys_clk_freq,
+        **parser.soc_argdict)
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build(**builder_kargs)
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()

@@ -9,9 +9,9 @@
 from migen import *
 from migen.genlib.resetsync import AsyncResetSynchronizer
 
-from litex_boards.platforms import trellisboard
+from litex.gen import LiteXModule
 
-from litex.build.lattice.trellis import trellis_args, trellis_argdict
+from litex_boards.platforms import trellisboard
 
 from litex.soc.cores.clock import *
 from litex.soc.integration.soc_core import *
@@ -28,11 +28,11 @@ from liteeth.phy.ecp5rgmii import LiteEthPHYRGMII
 
 # CRG ----------------------------------------------------------------------------------------------
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq):
-        self.rst = Signal()
-        self.clock_domains.cd_por = ClockDomain()
-        self.clock_domains.cd_sys = ClockDomain()
+        self.rst    = Signal()
+        self.cd_por = ClockDomain()
+        self.cd_sys = ClockDomain()
 
         # # #
 
@@ -48,20 +48,20 @@ class _CRG(Module):
         self.sync.por += If(~por_done, por_count.eq(por_count - 1))
 
         # PLL
-        self.submodules.pll = pll = ECP5PLL()
+        self.pll = pll = ECP5PLL()
         self.comb += pll.reset.eq(~por_done | rst | self.rst)
         pll.register_clkin(clk12, 12e6)
         pll.create_clkout(self.cd_sys, sys_clk_freq)
 
 
-class _CRGSDRAM(Module):
+class _CRGSDRAM(LiteXModule):
     def __init__(self, platform, sys_clk_freq):
-        self.rst = Signal()
-        self.clock_domains.cd_init    = ClockDomain()
-        self.clock_domains.cd_por     = ClockDomain()
-        self.clock_domains.cd_sys     = ClockDomain()
-        self.clock_domains.cd_sys2x   = ClockDomain()
-        self.clock_domains.cd_sys2x_i = ClockDomain()
+        self.rst        = Signal()
+        self.cd_init    = ClockDomain()
+        self.cd_por     = ClockDomain()
+        self.cd_sys     = ClockDomain()
+        self.cd_sys2x   = ClockDomain()
+        self.cd_sys2x_i = ClockDomain()
 
         # # #
 
@@ -81,7 +81,7 @@ class _CRGSDRAM(Module):
 
         # PLL
         sys2x_clk_ecsout = Signal()
-        self.submodules.pll = pll = ECP5PLL()
+        self.pll = pll = ECP5PLL()
         self.comb += pll.reset.eq(~por_done | rst | self.rst)
         pll.register_clkin(clk12, 12e6)
         pll.create_clkout(self.cd_sys2x_i, 2*sys_clk_freq)
@@ -110,7 +110,7 @@ class _CRGSDRAM(Module):
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, sys_clk_freq=int(75e6), toolchain="trellis",
+    def __init__(self, sys_clk_freq=75e6, toolchain="trellis",
         with_ethernet          = False,
         with_video_terminal    = False,
         with_video_framebuffer = False,
@@ -121,14 +121,14 @@ class BaseSoC(SoCCore):
 
         # CRG --------------------------------------------------------------------------------------
         crg_cls = _CRGSDRAM if kwargs.get("integrated_main_ram_size", 0) == 0 else _CRG
-        self.submodules.crg = crg_cls(platform, sys_clk_freq)
+        self.crg = crg_cls(platform, sys_clk_freq)
 
         # SoCCore ----------------------------------------------------------------------------------
         SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX SoC on Trellis Board", **kwargs)
 
         # DDR3 SDRAM -------------------------------------------------------------------------------
         if not self.integrated_main_ram_size:
-            self.submodules.ddrphy = ECP5DDRPHY(
+            self.ddrphy = ECP5DDRPHY(
                 platform.request("ddram"),
                 sys_clk_freq=sys_clk_freq)
             self.comb += self.crg.stop.eq(self.ddrphy.init.stop)
@@ -141,7 +141,7 @@ class BaseSoC(SoCCore):
 
         # Ethernet ---------------------------------------------------------------------------------
         if with_ethernet:
-            self.submodules.ethphy = LiteEthPHYRGMII(
+            self.ethphy = LiteEthPHYRGMII(
                 clock_pads = self.platform.request("eth_clocks"),
                 pads       = self.platform.request("eth"))
             self.add_ethernet(phy=self.ethphy)
@@ -150,8 +150,8 @@ class BaseSoC(SoCCore):
         if with_video_terminal or with_video_framebuffer:
             # PHY + TP410 I2C initialization.
             hdmi_pads = platform.request("hdmi")
-            self.submodules.videophy = VideoDVIPHY(hdmi_pads, clock_domain="init")
-            self.submodules.videoi2c = I2CMaster(hdmi_pads)
+            self.videophy = VideoDVIPHY(hdmi_pads, clock_domain="init")
+            self.videoi2c = I2CMaster(hdmi_pads)
             self.videoi2c.add_init(addr=0x38, init=[
                 (0x08, 0x35) # CTL_1_MODE: Normal operation, 24-bit, HSYNC/VSYNC.
             ])
@@ -164,55 +164,47 @@ class BaseSoC(SoCCore):
 
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
-            self.submodules.leds = LedChaser(
+            self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
                 sys_clk_freq = sys_clk_freq)
 
         # GPIOs ------------------------------------------------------------------------------------
         if with_pmod_gpio:
             platform.add_extension(trellisboard.raw_pmod_io("pmoda"))
-            self.submodules.gpio = GPIOTristate(platform.request("pmoda"))
+            self.gpio = GPIOTristate(platform.request("pmoda"))
 
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on Trellis Board")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",           action="store_true", help="Build design.")
-    target_group.add_argument("--load",            action="store_true", help="Load bitstream.")
-    target_group.add_argument("--toolchain",       default="trellis",   help="FPGA toolchain (trellis or diamond).")
-    target_group.add_argument("--sys-clk-freq",    default=75e6,        help="System clock frequency.")
-    target_group.add_argument("--with-ethernet",   action="store_true", help="Enable Ethernet support.")
-    viopts = target_group.add_mutually_exclusive_group()
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=trellisboard.Platform, description="LiteX SoC on Trellis Board.")
+    parser.add_target_argument("--sys-clk-freq",    default=75e6, type=float, help="System clock frequency.")
+    parser.add_target_argument("--with-ethernet",   action="store_true",      help="Enable Ethernet support.")
+    viopts = parser.target_group.add_mutually_exclusive_group()
     viopts.add_argument("--with-video-terminal",    action="store_true", help="Enable Video Terminal (HDMI).")
     viopts.add_argument("--with-video-framebuffer", action="store_true", help="Enable Video Framebuffer (HDMI).")
-    sdopts = target_group.add_mutually_exclusive_group()
-    sdopts.add_argument("--with-spi-sdcard", action="store_true", help="Enable SPI-mode SDCard support.")
-    sdopts.add_argument("--with-sdcard",     action="store_true", help="Enable SDCard support.")
-    target_group.add_argument("--with-pmod-gpio",  action="store_true", help="Enable GPIOs through PMOD.") # FIXME: Temporary test.
-    builder_args(parser)
-    soc_core_args(parser)
-    trellis_args(parser)
+    sdopts = parser.target_group.add_mutually_exclusive_group()
+    sdopts.add_argument("--with-spi-sdcard",       action="store_true", help="Enable SPI-mode SDCard support.")
+    sdopts.add_argument("--with-sdcard",           action="store_true", help="Enable SDCard support.")
+    parser.add_target_argument("--with-pmod-gpio", action="store_true", help="Enable GPIOs through PMOD.") # FIXME: Temporary test.
     args = parser.parse_args()
 
     soc = BaseSoC(
-        sys_clk_freq           = int(float(args.sys_clk_freq)),
+        sys_clk_freq           = args.sys_clk_freq,
         toolchain              = args.toolchain,
         with_ethernet          = args.with_ethernet,
         with_video_terminal    = args.with_video_terminal,
         with_video_framebuffer = args.with_video_framebuffer,
         with_pmod_gpio         = args.with_pmod_gpio,
-        **soc_core_argdict(args)
+        **parser.soc_argdict
     )
     if args.with_spi_sdcard:
         soc.add_spi_sdcard()
     if args.with_sdcard:
         soc.add_sdcard()
-    builder = Builder(soc, **builder_argdict(args))
-    builder_kargs = trellis_argdict(args) if args.toolchain == "trellis" else {}
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build(**builder_kargs)
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()

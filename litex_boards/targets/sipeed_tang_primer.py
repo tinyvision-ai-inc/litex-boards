@@ -9,6 +9,8 @@
 from migen import *
 from migen.genlib.resetsync import AsyncResetSynchronizer
 
+from litex.gen import LiteXModule
+
 from litex_boards.platforms import sipeed_tang_primer
 
 from litex.build.generic_platform import *
@@ -21,9 +23,9 @@ from litex.soc.cores.led import LedChaser
 
 # CRG ----------------------------------------------------------------------------------------------
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq):
-        self.clock_domains.cd_sys   = ClockDomain()
+        self.cd_sys   = ClockDomain()
 
         # # #
 
@@ -37,11 +39,11 @@ class _CRG(Module):
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, sys_clk_freq=int(24e6), with_led_chaser=True, **kwargs):
+    def __init__(self, sys_clk_freq=24e6, with_led_chaser=True, **kwargs):
         platform = sipeed_tang_primer.Platform()
 
         # CRG --------------------------------------------------------------------------------------
-        self.submodules.crg = _CRG(platform, sys_clk_freq)
+        self.crg = _CRG(platform, sys_clk_freq)
 
         # SoCCore ----------------------------------------------------------------------------------
         if kwargs.get("cpu_type", "vexriscv") == "vexriscv":
@@ -50,32 +52,27 @@ class BaseSoC(SoCCore):
 
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
-            self.submodules.leds = LedChaser(
+            self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
                 sys_clk_freq = sys_clk_freq)
 
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on Tang Primer")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",       action="store_true", help="Build design.")
-    target_group.add_argument("--load",        action="store_true", help="Load bitstream.")
-    target_group.add_argument("--flash",       action="store_true", help="Flash Bitstream.")
-    target_group.add_argument("--sys-clk-freq",default=24e6,        help="System clock frequency.")
-    builder_args(parser)
-    soc_core_args(parser)
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=sipeed_tang_primer.Platform, description="LiteX SoC on Tang Primer.")
+    parser.add_target_argument("--flash",        action="store_true",      help="Flash Bitstream.")
+    parser.add_target_argument("--sys-clk-freq", default=24e6, type=float, help="System clock frequency.")
     args = parser.parse_args()
 
     soc = BaseSoC(
-        sys_clk_freq = int(float(args.sys_clk_freq)),
-        **soc_core_argdict(args)
+        sys_clk_freq = args.sys_clk_freq,
+        **parser.soc_argdict
     )
 
-    builder = Builder(soc, **builder_argdict(args))
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build()
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()

@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 from litex.build.generic_platform import *
-from litex.build.xilinx import XilinxPlatform
+from litex.build.xilinx import Xilinx7SeriesPlatform
 from litex.build.openocd import OpenOCD
 
 # IOs ----------------------------------------------------------------------------------------------
@@ -144,14 +144,14 @@ _io = [
 
     # GMII Ethernet
     ("eth_clocks", 0,
-        Subsignal("tx",  Pins("E12"), IOStandard("LVCMOS15")),
-        Subsignal("gtx", Pins("F13"), IOStandard("LVCMOS15")),
-        Subsignal("rx",  Pins("C12"), IOStandard("LVCMOS15"))
+        Subsignal("tx",  Pins("E12"), IOStandard("LVCMOS25")),
+        Subsignal("gtx", Pins("F13"), IOStandard("LVCMOS25")),
+        Subsignal("rx",  Pins("C12"), IOStandard("LVCMOS25"))
     ),
     ("eth_clocks", 1,
-        Subsignal("tx",  Pins("C9"),  IOStandard("LVCMOS15")),
-        Subsignal("gtx", Pins("D8"),  IOStandard("LVCMOS15")),
-        Subsignal("rx",  Pins("E10"), IOStandard("LVCMOS15"))
+        Subsignal("tx",  Pins("C9"),  IOStandard("LVCMOS25")),
+        Subsignal("gtx", Pins("D8"),  IOStandard("LVCMOS25")),
+        Subsignal("rx",  Pins("E10"), IOStandard("LVCMOS25"))
     ),
     ("eth", 0,
         Subsignal("rst_n",   Pins("D11")),
@@ -164,9 +164,7 @@ _io = [
         Subsignal("tx_en",   Pins("F12")),
         Subsignal("tx_er",   Pins("E13")),
         Subsignal("tx_data", Pins("G12 E11 G11 C14 D14 C13 C11 D13")),
-        Subsignal("col",     Pins("W19")),
-        Subsignal("crs",     Pins("R30")),
-        IOStandard("LVCMOS15")
+        IOStandard("LVCMOS25")
     ),
     ("eth", 1,
         Subsignal("rst_n",   Pins("J8")),
@@ -179,9 +177,7 @@ _io = [
         Subsignal("tx_en",   Pins("F8")),
         Subsignal("tx_er",   Pins("D9")),
         Subsignal("tx_data", Pins("H11 J11 H9 J10 H12 F10 G10 F9")),
-        Subsignal("col",     Pins("W19")),
-        Subsignal("crs",     Pins("R30")),
-        IOStandard("LVCMOS15")
+        IOStandard("LVCMOS25")
     ),
 
     # HDMI out
@@ -289,12 +285,12 @@ _connectors = [
 
 # Platform -----------------------------------------------------------------------------------------
 
-class Platform(XilinxPlatform):
+class Platform(Xilinx7SeriesPlatform):
     default_clk_name   = "clk200"
     default_clk_period = 1e9/200e6
 
     def __init__(self):
-        XilinxPlatform.__init__(self, "xc7k325t-ffg676-2", _io, _connectors, toolchain="vivado")
+        Xilinx7SeriesPlatform.__init__(self, "xc7k325t-ffg676-2", _io, _connectors, toolchain="vivado")
         self.add_platform_command("""
 set_property CFGBVS VCCO [current_design]
 set_property CONFIG_VOLTAGE 2.5 [current_design]
@@ -306,7 +302,7 @@ set_property CONFIG_VOLTAGE 2.5 [current_design]
         return OpenOCD("openocd_xc7_ft232.cfg", "bscan_spi_xc7a325t.bit")
 
     def do_finalize(self, fragment):
-        XilinxPlatform.do_finalize(self, fragment)
+        Xilinx7SeriesPlatform.do_finalize(self, fragment)
         self.add_period_constraint(self.lookup_request("clk200",        loose=True), 1e9/200e6)
         self.add_period_constraint(self.lookup_request("eth_clocks:rx", 0, loose=True), 1e9/125e6)
         self.add_period_constraint(self.lookup_request("eth_clocks:tx", 0, loose=True), 1e9/125e6)

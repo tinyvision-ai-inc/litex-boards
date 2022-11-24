@@ -14,8 +14,9 @@
 
 from migen import *
 
+from litex.gen import LiteXModule
+
 from litex_boards.platforms import digilent_arty
-from litex.build.xilinx.vivado import vivado_build_args, vivado_build_argdict
 
 from litex.soc.cores.clock import *
 from litex.soc.integration.soc import SoCRegion
@@ -33,16 +34,15 @@ from liteeth.phy.mii import LiteEthPHYMII
 
 # CRG ----------------------------------------------------------------------------------------------
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq, with_dram=True, with_rst=True):
-        self.rst = Signal()
-        self.clock_domains.cd_sys       = ClockDomain()
-        self.clock_domains.cd_eth       = ClockDomain()
+        self.rst    = Signal()
+        self.cd_sys = ClockDomain()
+        self.cd_eth = ClockDomain()
         if with_dram:
-            self.clock_domains.cd_sys4x     = ClockDomain()
-            self.clock_domains.cd_sys4x_dqs = ClockDomain()
-            self.clock_domains.cd_idelay    = ClockDomain()
-
+            self.cd_sys4x     = ClockDomain()
+            self.cd_sys4x_dqs = ClockDomain()
+            self.cd_idelay    = ClockDomain()
 
         # # #
 
@@ -51,7 +51,7 @@ class _CRG(Module):
         rst    = ~platform.request("cpu_reset") if with_rst else 0
 
         # PLL.
-        self.submodules.pll = pll = S7PLL(speedgrade=-1)
+        self.pll = pll = S7PLL(speedgrade=-1)
         self.comb += pll.reset.eq(rst | self.rst)
         pll.register_clkin(clk100, 100e6)
         pll.create_clkout(self.cd_sys, sys_clk_freq)
@@ -65,12 +65,12 @@ class _CRG(Module):
 
         # IdelayCtrl.
         if with_dram:
-            self.submodules.idelayctrl = S7IDELAYCTRL(self.cd_idelay)
+            self.idelayctrl = S7IDELAYCTRL(self.cd_idelay)
 
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, variant="a7-35", toolchain="vivado", sys_clk_freq=int(100e6),
+    def __init__(self, variant="a7-35", toolchain="vivado", sys_clk_freq=100e6,
         with_ethernet   = False,
         with_etherbone  = False,
         eth_ip          = "192.168.1.50",
@@ -85,21 +85,21 @@ class BaseSoC(SoCCore):
 
         # CRG --------------------------------------------------------------------------------------
         with_dram = (kwargs.get("integrated_main_ram_size", 0) == 0)
-        self.submodules.crg = _CRG(platform, sys_clk_freq, with_dram)
+        self.crg  = _CRG(platform, sys_clk_freq, with_dram)
 
         # SoCCore ----------------------------------------------------------------------------------
         SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX SoC on Arty A7", **kwargs)
 
         # XADC -------------------------------------------------------------------------------------
-        self.submodules.xadc = XADC()
+        self.xadc = XADC()
 
         # DNA --------------------------------------------------------------------------------------
-        self.submodules.dna = DNA()
+        self.dna = DNA()
         self.dna.add_timing_constraints(platform, sys_clk_freq, self.crg.cd_sys.clk)
 
         # DDR3 SDRAM -------------------------------------------------------------------------------
         if not self.integrated_main_ram_size:
-            self.submodules.ddrphy = s7ddrphy.A7DDRPHY(platform.request("ddram"),
+            self.ddrphy = s7ddrphy.A7DDRPHY(platform.request("ddram"),
                 memtype        = "DDR3",
                 nphases        = 4,
                 sys_clk_freq   = sys_clk_freq)
@@ -111,7 +111,7 @@ class BaseSoC(SoCCore):
 
         # Ethernet / Etherbone ---------------------------------------------------------------------
         if with_ethernet or with_etherbone:
-            self.submodules.ethphy = LiteEthPHYMII(
+            self.ethphy = LiteEthPHYMII(
                 clock_pads = self.platform.request("eth_clocks"),
                 pads       = self.platform.request("eth"))
             if with_ethernet:
@@ -131,14 +131,14 @@ class BaseSoC(SoCCore):
 
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
-            self.submodules.leds = LedChaser(
+            self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
                 sys_clk_freq = sys_clk_freq,
             )
 
         # Buttons ----------------------------------------------------------------------------------
         if with_buttons:
-            self.submodules.buttons = GPIOIn(
+            self.buttons = GPIOIn(
                 pads     = platform.request_all("user_btn"),
                 with_irq = self.irq.enabled
             )
@@ -146,7 +146,7 @@ class BaseSoC(SoCCore):
         # GPIOs ------------------------------------------------------------------------------------
         if with_pmod_gpio:
             platform.add_extension(digilent_arty.raw_pmod_io("pmoda"))
-            self.submodules.gpio = GPIOTristate(
+            self.gpio = GPIOTristate(
                 pads     = platform.request("pmoda"),
                 with_irq = self.irq.enabled
             )
@@ -154,30 +154,23 @@ class BaseSoC(SoCCore):
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on Arty A7")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--toolchain",           default="vivado",                 help="FPGA toolchain (vivado, symbiflow or yosys+nextpnr).")
-    target_group.add_argument("--build",               action="store_true",              help="Build design.")
-    target_group.add_argument("--load",                action="store_true",              help="Load bitstream.")
-    target_group.add_argument("--flash",               action="store_true",              help="Flash bitstream.")
-    target_group.add_argument("--variant",             default="a7-35",                  help="Board variant (a7-35 or a7-100).")
-    target_group.add_argument("--sys-clk-freq",        default=100e6,                    help="System clock frequency.")
-    ethopts = target_group.add_mutually_exclusive_group()
-    ethopts.add_argument("--with-ethernet",      action="store_true",              help="Enable Ethernet support.")
-    ethopts.add_argument("--with-etherbone",     action="store_true",              help="Enable Etherbone support.")
-    target_group.add_argument("--eth-ip",              default="192.168.1.50", type=str, help="Ethernet/Etherbone IP address.")
-    target_group.add_argument("--eth-dynamic-ip",      action="store_true",              help="Enable dynamic Ethernet IP addresses setting.")
-    sdopts = target_group.add_mutually_exclusive_group()
-    sdopts.add_argument("--with-spi-sdcard",     action="store_true",              help="Enable SPI-mode SDCard support.")
-    sdopts.add_argument("--with-sdcard",         action="store_true",              help="Enable SDCard support.")
-    target_group.add_argument("--sdcard-adapter",      type=str,                         help="SDCard PMOD adapter (digilent or numato).")
-    target_group.add_argument("--with-jtagbone",       action="store_true",              help="Enable JTAGbone support.")
-    target_group.add_argument("--with-spi-flash",      action="store_true",              help="Enable SPI Flash (MMAPed).")
-    target_group.add_argument("--with-pmod-gpio",      action="store_true",              help="Enable GPIOs through PMOD.") # FIXME: Temporary test.
-    builder_args(parser)
-    soc_core_args(parser)
-    vivado_build_args(parser)
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=digilent_arty.Platform, description="LiteX SoC on Arty A7.")
+    parser.add_target_argument("--flash",        action="store_true",       help="Flash bitstream.")
+    parser.add_target_argument("--variant",      default="a7-35",           help="Board variant (a7-35 or a7-100).")
+    parser.add_target_argument("--sys-clk-freq", default=100e6, type=float, help="System clock frequency.")
+    ethopts = parser.target_group.add_mutually_exclusive_group()
+    ethopts.add_argument("--with-ethernet",        action="store_true",    help="Enable Ethernet support.")
+    ethopts.add_argument("--with-etherbone",       action="store_true",    help="Enable Etherbone support.")
+    parser.add_target_argument("--eth-ip",         default="192.168.1.50", help="Ethernet/Etherbone IP address.")
+    parser.add_target_argument("--eth-dynamic-ip", action="store_true",    help="Enable dynamic Ethernet IP addresses setting.")
+    sdopts = parser.target_group.add_mutually_exclusive_group()
+    sdopts.add_argument("--with-spi-sdcard",       action="store_true", help="Enable SPI-mode SDCard support.")
+    sdopts.add_argument("--with-sdcard",           action="store_true", help="Enable SDCard support.")
+    parser.add_target_argument("--sdcard-adapter",                      help="SDCard PMOD adapter (digilent or numato).")
+    parser.add_target_argument("--with-jtagbone",  action="store_true", help="Enable JTAGbone support.")
+    parser.add_target_argument("--with-spi-flash", action="store_true", help="Enable SPI Flash (MMAPed).")
+    parser.add_target_argument("--with-pmod-gpio", action="store_true", help="Enable GPIOs through PMOD.") # FIXME: Temporary test.
     args = parser.parse_args()
 
     assert not (args.with_etherbone and args.eth_dynamic_ip)
@@ -185,7 +178,7 @@ def main():
     soc = BaseSoC(
         variant        = args.variant,
         toolchain      = args.toolchain,
-        sys_clk_freq   = int(float(args.sys_clk_freq)),
+        sys_clk_freq   = args.sys_clk_freq,
         with_ethernet  = args.with_ethernet,
         with_etherbone = args.with_etherbone,
         eth_ip         = args.eth_ip,
@@ -193,7 +186,7 @@ def main():
         with_jtagbone  = args.with_jtagbone,
         with_spi_flash = args.with_spi_flash,
         with_pmod_gpio = args.with_pmod_gpio,
-        **soc_core_argdict(args)
+        **parser.soc_argdict
     )
     if args.sdcard_adapter == "numato":
         soc.platform.add_extension(digilent_arty._numato_sdcard_pmod_io)
@@ -204,10 +197,9 @@ def main():
     if args.with_sdcard:
         soc.add_sdcard()
 
-    builder = Builder(soc, **builder_argdict(args))
-    builder_kwargs = vivado_build_argdict(args) if args.toolchain == "vivado" else {}
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build(**builder_kwargs)
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()

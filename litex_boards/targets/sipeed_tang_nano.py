@@ -31,6 +31,8 @@
 
 from migen import *
 
+from litex.gen import LiteXModule
+
 from litex_boards.platforms import sipeed_tang_nano
 
 from litex.soc.cores.clock.gowin_gw1n import  GW1NPLL
@@ -40,10 +42,10 @@ from litex.soc.cores.led import LedChaser
 
 # CRG ----------------------------------------------------------------------------------------------
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq):
-        self.rst = Signal()
-        self.clock_domains.cd_sys   = ClockDomain()
+        self.rst    = Signal()
+        self.cd_sys = ClockDomain()
 
         # # #
 
@@ -52,7 +54,7 @@ class _CRG(Module):
         rst_n = platform.request("user_btn", 0)
 
         # PLL.
-        self.submodules.pll = pll = GW1NPLL(devicename=platform.devicename, device=platform.device)
+        self.pll = pll = GW1NPLL(devicename=platform.devicename, device=platform.device)
         self.comb += pll.reset.eq(~rst_n)
         pll.register_clkin(clk24, 24e6)
         pll.create_clkout(self.cd_sys, sys_clk_freq)
@@ -60,11 +62,11 @@ class _CRG(Module):
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCMini):
-    def __init__(self, sys_clk_freq=int(48e6), with_led_chaser=True, **kwargs):
+    def __init__(self, sys_clk_freq=48e6, with_led_chaser=True, **kwargs):
         platform = sipeed_tang_nano.Platform()
 
         # CRG --------------------------------------------------------------------------------------
-        self.submodules.crg = _CRG(platform, sys_clk_freq)
+        self.crg = _CRG(platform, sys_clk_freq)
 
         # SoCMini ----------------------------------------------------------------------------------
         kwargs["uart_name"] = "crossover"
@@ -75,32 +77,27 @@ class BaseSoC(SoCMini):
 
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
-            self.submodules.leds = LedChaser(
+            self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
                 sys_clk_freq = sys_clk_freq)
 
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on Tang Nano")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",       action="store_true", help="Build design.")
-    target_group.add_argument("--load",        action="store_true", help="Load bitstream.")
-    target_group.add_argument("--flash",       action="store_true", help="Flash Bitstream.")
-    target_group.add_argument("--sys-clk-freq",default=48e6,        help="System clock frequency.")
-    builder_args(parser)
-    soc_core_args(parser)
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=sipeed_tang_nano.Platform, description="LiteX SoC on Tang Nano.")
+    parser.add_target_argument("--flash",       action="store_true",      help="Flash Bitstream.")
+    parser.add_target_argument("--sys-clk-freq",default=48e6, type=float, help="System clock frequency.")
     args = parser.parse_args()
 
     soc = BaseSoC(
-        sys_clk_freq      = int(float(args.sys_clk_freq)),
-        **soc_core_argdict(args)
+        sys_clk_freq = args.sys_clk_freq,
+        **parser.soc_argdict
     )
 
-    builder = Builder(soc, **builder_argdict(args))
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build()
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()

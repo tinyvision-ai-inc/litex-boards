@@ -8,9 +8,10 @@
 
 from migen import *
 
+from litex.gen import LiteXModule
+
 from litex_boards.platforms import xilinx_zcu216
 
-from litex.build.xilinx.vivado import vivado_build_args, vivado_build_argdict
 from litex.build.tools import write_to_file
 
 from litex.soc.interconnect import axi
@@ -24,10 +25,10 @@ from litex.soc.cores.led import LedChaser
 
 # CRG ----------------------------------------------------------------------------------------------
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq, use_ps7_clk=False):
-        self.rst = Signal()
-        self.clock_domains.cd_sys = ClockDomain()
+        self.rst    = Signal()
+        self.cd_sys = ClockDomain()
 
         # # #
 
@@ -35,7 +36,7 @@ class _CRG(Module):
             self.comb += ClockSignal("sys").eq(ClockSignal("ps"))
             self.comb += ResetSignal("sys").eq(ResetSignal("ps") | self.rst)
         else:
-            self.submodules.pll = pll = S7PLL(speedgrade=-1)
+            self.pll = pll = S7PLL(speedgrade=-1)
             self.comb += pll.reset.eq(self.rst)
             pll.register_clkin(platform.request(platform.default_clk_name), platform.default_clk_freq)
             pll.create_clkout(self.cd_sys, sys_clk_freq)
@@ -47,12 +48,12 @@ class _CRG(Module):
 class BaseSoC(SoCCore):
     mem_map = {"csr": 0xA000_0000}  # default GP0 address on ZynqMP
 
-    def __init__(self, sys_clk_freq, with_led_chaser=True, **kwargs):
+    def __init__(self, sys_clk_freq=100e6, with_led_chaser=True, **kwargs):
         platform = xilinx_zcu216.Platform()
 
         # CRG --------------------------------------------------------------------------------------
         use_ps7_clk = (kwargs.get("cpu_type", None) == "zynqmp")
-        self.submodules.crg = _CRG(platform, sys_clk_freq, use_ps7_clk)
+        self.crg = _CRG(platform, sys_clk_freq, use_ps7_clk)
 
         # SoCCore ----------------------------------------------------------------------------------
         if kwargs.get("cpu_type", None) == "zynqmp":
@@ -127,7 +128,7 @@ class BaseSoC(SoCCore):
 
         # LEDs -------------------------------------------------------------------------------------
         if with_led_chaser:
-            self.submodules.leds = LedChaser(
+            self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
                 sys_clk_freq = sys_clk_freq)
 
@@ -192,30 +193,24 @@ class BaseSoC(SoCCore):
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on ZCU216")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",        action="store_true", help="Build design.")
-    target_group.add_argument("--load",         action="store_true", help="Load bitstream.")
-    target_group.add_argument("--sys-clk-freq", default=100e6,       help="System clock frequency.")
-    builder_args(parser)
-    soc_core_args(parser)
-    vivado_build_args(parser)
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=xilinx_zcu216.Platform, description="LiteX SoC on ZCU216.")
+    parser.add_target_argument("--sys-clk-freq", default=100e6, type=float, help="System clock frequency.")
     parser.set_defaults(cpu_type="zynqmp")
     parser.set_defaults(no_uart=True)
     args = parser.parse_args()
 
     soc = BaseSoC(
-        sys_clk_freq=int(float(args.sys_clk_freq)),
-        **soc_core_argdict(args)
+        sys_clk_freq = args.sys_clk_freq,
+        **parser.soc_argdict
     )
-    builder = Builder(soc, **builder_argdict(args))
+    builder = Builder(soc, **parser.builder_argdict)
     if args.cpu_type == "zynqmp":
         soc.builder = builder
         builder.add_software_package('libxil')
         builder.add_software_library('libxil')
     if args.build:
-        builder.build(**vivado_build_argdict(args))
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()

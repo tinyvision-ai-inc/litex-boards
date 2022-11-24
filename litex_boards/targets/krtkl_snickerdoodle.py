@@ -11,8 +11,9 @@ import os
 
 from migen import *
 
+from litex.gen import LiteXModule
+
 from litex_boards.platforms import krtkl_snickerdoodle
-from litex.build.xilinx.vivado import vivado_build_args, vivado_build_argdict
 
 from litex.soc.interconnect import axi
 from litex.soc.interconnect import wishbone
@@ -38,10 +39,10 @@ def load_ps7(soc, xci_file):
 
 # CRG ----------------------------------------------------------------------------------------------
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq, use_ps7_clk=False):
-        self.rst = Signal()
-        self.clock_domains.cd_sys = ClockDomain()
+        self.rst    = Signal()
+        self.cd_sys = ClockDomain()
 
         # # #
 
@@ -50,7 +51,7 @@ class _CRG(Module):
             self.comb += ClockSignal("sys").eq(ClockSignal("ps7"))
             self.comb += ResetSignal("sys").eq(ResetSignal("ps7") | self.rst)
         else:
-            self.submodules.pll = pll = S7MMCM(speedgrade=-1)
+            self.pll = pll = S7MMCM(speedgrade=-1)
             self.comb += pll.reset.eq(self.rst)
             pll.register_clkin(platform.request(platform.default_clk_name),
                                platform.default_clk_freq)
@@ -62,11 +63,11 @@ class _CRG(Module):
 
 class BaseSoC(SoCCore):
 
-    def __init__(self, variant="z7-10", sys_clk_freq=int(100e6), with_led_chaser=True,
-        ext_clk_freq = None,
-        xci_file     = None,
+    def __init__(self, variant="z7-10", sys_clk_freq=100e6,
+        with_led_chaser = True,
+        ext_clk_freq    = None,
+        xci_file        = None,
         **kwargs):
-
         platform = krtkl_snickerdoodle.Platform(variant=variant)
 
         # CRG --------------------------------------------------------------------------------------
@@ -74,7 +75,7 @@ class BaseSoC(SoCCore):
             platform.default_clk_freq   = ext_clk_freq
             platform.default_clk_period = 1e9 / ext_clk_freq
         use_ps7_clk = (kwargs.get("cpu_type", None) == "zynq7000")
-        self.submodules.crg = _CRG(platform, sys_clk_freq, use_ps7_clk)
+        self.crg = _CRG(platform, sys_clk_freq, use_ps7_clk)
 
         # SoCCore ----------------------------------------------------------------------------------
         if kwargs.get("cpu_type", None) == "zynq7000":
@@ -97,26 +98,20 @@ class BaseSoC(SoCCore):
 
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
-            self.submodules.leds = LedChaser(
+            self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
                 sys_clk_freq = sys_clk_freq)
 
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on Snickerdoodle")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",        action="store_true", help="Build design.")
-    target_group.add_argument("--load",         action="store_true", help="Load bitstream.")
-    target_group.add_argument("--variant",      default="z7-10",     help="Board variant (z7-10 or z7-20).")
-    target_group.add_argument("--ext-clk-freq", default=10e6,  type=float, help="External Clock Frequency.")
-    target_group.add_argument("--sys-clk-freq", default=100e6, type=float, help="System clock frequency.")
-    target_group.add_argument("--xci-file",     help="XCI file for PS7 configuration.")
-    target_group.add_argument("--target",       help="Vivado programmer target.")
-    builder_args(parser)
-    soc_core_args(parser)
-    vivado_build_args(parser)
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=krtkl_snickerdoodle.Platform, description="LiteX SoC on Snickerdoodle.")
+    parser.add_target_argument("--variant",      default="z7-10",           help="Board variant (z7-10 or z7-20).")
+    parser.add_target_argument("--ext-clk-freq", default=10e6,  type=float, help="External Clock Frequency.")
+    parser.add_target_argument("--sys-clk-freq", default=100e6, type=float, help="System clock frequency.")
+    parser.add_target_argument("--xci-file",     help="XCI file for PS7 configuration.")
+    parser.add_target_argument("--target",       help="Vivado programmer target.")
     args = parser.parse_args()
 
     soc = BaseSoC(
@@ -124,11 +119,11 @@ def main():
         sys_clk_freq = args.sys_clk_freq,
         ext_clk_freq = args.ext_clk_freq,
         xci_file     = args.xci_file,
-        **soc_core_argdict(args)
+        **parser.soc_argdict
     )
-    builder = Builder(soc, **builder_argdict(args))
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build(**vivado_build_argdict(args))
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()

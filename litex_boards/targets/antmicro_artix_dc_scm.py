@@ -9,10 +9,12 @@
 
 import os
 import math
+
 from migen import *
 
+from litex.gen import LiteXModule
+
 from litex_boards.platforms import antmicro_artix_dc_scm
-from litex.build.xilinx.vivado import vivado_build_args, vivado_build_argdict
 
 from litex.soc.cores.clock import *
 from litex.soc.integration.soc_core import *
@@ -28,16 +30,16 @@ from litepcie.phy.s7pciephy import S7PCIEPHY
 
 # CRG ----------------------------------------------------------------------------------------------
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq):
-        self.rst = Signal()
-        self.clock_domains.cd_sys       = ClockDomain()
-        self.clock_domains.cd_sys4x     = ClockDomain(reset_less=True)
-        self.clock_domains.cd_sys4x_dqs = ClockDomain(reset_less=True)
-        self.clock_domains.cd_idelay    = ClockDomain()
+        self.rst          = Signal()
+        self.cd_sys       = ClockDomain()
+        self.cd_sys4x     = ClockDomain(reset_less=True)
+        self.cd_sys4x_dqs = ClockDomain(reset_less=True)
+        self.cd_idelay    = ClockDomain()
 
-        self.clock_domains.cd_ulpi0     = ClockDomain()
-        self.clock_domains.cd_ulpi1     = ClockDomain()
+        self.cd_ulpi0     = ClockDomain()
+        self.cd_ulpi1     = ClockDomain()
 
         # ulpi0 clock domain (60MHz from ulpi0)
         self.comb += self.cd_ulpi0.clk.eq(platform.request("ulpi_clock", 0))
@@ -46,7 +48,7 @@ class _CRG(Module):
 
         # # #
 
-        self.submodules.pll = pll = S7PLL(speedgrade=-1)
+        self.pll = pll = S7PLL(speedgrade=-1)
         # self.comb += pll.reset.eq(~platform.request("cpu_reset") | self.rst)
         self.comb += pll.reset.eq(self.rst)
         pll.register_clkin(platform.request("clk100"), 100e6)
@@ -55,24 +57,30 @@ class _CRG(Module):
         pll.create_clkout(self.cd_sys4x_dqs, 4 * sys_clk_freq, phase=90)
         pll.create_clkout(self.cd_idelay,    200e6)
 
-        self.submodules.idelayctrl = S7IDELAYCTRL(self.cd_idelay)
+        self.idelayctrl = S7IDELAYCTRL(self.cd_idelay)
 
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, *, device, with_pcie, with_etherbone, with_ethernet, with_sdram, eth_dynamic_ip,
-            eth_reset_time, toolchain="vivado", sys_clk_freq=int(100e6), eth_ip="192.168.1.120", **kwargs):
+    def __init__(self, *, device, toolchain="vivado", sys_clk_freq=100e6,
+        with_pcie      = False,
+        with_etherbone = False,
+        with_ethernet  = False,
+        eth_dynamic_ip = False,
+        eth_reset_time = "10e-3",
+        eth_ip         = "192.168.1.120",
+        **kwargs):
         platform = antmicro_artix_dc_scm.Platform(device=device, toolchain=toolchain)
 
         # CRG --------------------------------------------------------------------------------------
-        self.submodules.crg = _CRG(platform, sys_clk_freq)
+        self.crg = _CRG(platform, sys_clk_freq)
 
         # SoCCore ----------------------------------------------------------------------------------
         SoCCore.__init__(self, platform, sys_clk_freq, ident = "LiteX SoC on Artix DC-SCM", **kwargs)
 
         # DDR3 SDRAM -------------------------------------------------------------------------------
         if not self.integrated_main_ram_size:
-            self.submodules.ddrphy = s7ddrphy.A7DDRPHY(platform.request("ddram"),
+            self.ddrphy = s7ddrphy.A7DDRPHY(platform.request("ddram"),
                 memtype      = "DDR3",
                 nphases      = 4,
                 sys_clk_freq = sys_clk_freq)
@@ -84,7 +92,7 @@ class BaseSoC(SoCCore):
 
         # Ethernet / Etherbone ---------------------------------------------------------------------
         if with_ethernet or with_etherbone:
-            self.submodules.ethphy = LiteEthS7PHYRGMII(
+            self.ethphy = LiteEthS7PHYRGMII(
                 clock_pads = self.platform.request("eth_clocks"),
                 pads       = self.platform.request("eth"),
                 hw_reset_cycles = math.ceil(float(eth_reset_time) * self.sys_clk_freq)
@@ -98,40 +106,33 @@ class BaseSoC(SoCCore):
 
         # PCIe -------------------------------------------------------------------------------------
         if with_pcie:
-            self.submodules.pcie_phy = S7PCIEPHY(platform, platform.request("pcie_x1"),
+            self.pcie_phy = S7PCIEPHY(platform, platform.request("pcie_x1"),
                 data_width = 128,
                 bar0_size  = 0x20000)
             self.add_pcie(phy=self.pcie_phy, ndmas=1)
 
         # Leds -------------------------------------------------------------------------------------
-        self.submodules.leds = LedChaser(
+        self.leds = LedChaser(
             pads         = platform.request_all("user_led"),
             sys_clk_freq = sys_clk_freq)
 
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on Artix DC-SCM")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--toolchain",              default="vivado",    help="FPGA toolchain (vivado or symbiflow).")
-    target_group.add_argument("--build",                  action="store_true", help="Build design.")
-    target_group.add_argument("--load",                   action="store_true", help="Load bitstream.")
-    target_group.add_argument("--flash",                  action="store_true", help="Flash bitstream")
-    target_group.add_argument("--sys-clk-freq",           default=100e6,       help="System clock frequency.")
-    target_group.add_argument("--device",                 default="xc7a100tfgg484-1", choices=["xc7a100tfgg484-1", "xc7a15tfgg484-1"])
-    target_group.add_argument("--with-pcie",              action="store_true",  help="Add PCIe")
-    ethopts = target_group.add_mutually_exclusive_group()
-    ethopts.add_argument("--with-ethernet",         action="store_true",    help="Add Ethernet")
-    ethopts.add_argument("--with-etherbone",        action="store_true",    help="Add EtherBone")
-    target_group.add_argument("--eth-ip",                 default="192.168.1.50", help="Ethernet/Etherbone IP address")
-    target_group.add_argument("--eth-dynamic-ip",         action="store_true",    help="Enable dynamic Ethernet IP addresses setting")
-    target_group.add_argument("--eth-reset-time",         default="10e-3",        help="Duration of Ethernet PHY reset")
-    target_group.add_argument("--with-sdram",             action="store_true",  help="Add SDRAM")
-    target_group.add_argument("--with-emmc",              action="store_true",  help="Add eMMC")
-    builder_args(parser)
-    soc_core_args(parser)
-    vivado_build_args(parser)
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=antmicro_artix_dc_scm.Platform, description="LiteX SoC on Artix DC-SCM.")
+    parser.add_target_argument("--flash",        action="store_true",       help="Flash bitstream.")
+    parser.add_target_argument("--sys-clk-freq", default=100e6, type=float, help="System clock frequency.")
+    parser.add_target_argument("--device",       default="xc7a100tfgg484-1", choices=["xc7a100tfgg484-1", "xc7a15tfgg484-1"])
+    parser.add_target_argument("--with-pcie",    action="store_true",      help="Add PCIe.")
+    ethopts = parser.target_group.add_mutually_exclusive_group()
+    ethopts.add_argument("--with-ethernet",        action="store_true",    help="Add Ethernet.")
+    ethopts.add_argument("--with-etherbone",       action="store_true",    help="Add EtherBone.")
+    parser.add_target_argument("--eth-ip",         default="192.168.1.50", help="Ethernet/Etherbone IP address.")
+    parser.add_target_argument("--eth-dynamic-ip", action="store_true",    help="Enable dynamic Ethernet IP addresses setting.")
+    parser.add_target_argument("--eth-reset-time", default="10e-3",        help="Duration of Ethernet PHY reset.")
+    parser.add_target_argument("--with-sdram",     action="store_true",    help="Add SDRAM.")
+    parser.add_target_argument("--with-emmc",      action="store_true",    help="Add eMMC.")
     args = parser.parse_args()
 
     assert not (args.with_etherbone and args.eth_dynamic_ip)
@@ -139,24 +140,22 @@ def main():
     soc = BaseSoC(
         toolchain              = args.toolchain,
         device                 = args.device,
-        sys_clk_freq           = int(float(args.sys_clk_freq)),
+        sys_clk_freq           = args.sys_clk_freq,
         with_pcie              = args.with_pcie,
         with_ethernet          = args.with_ethernet,
         with_etherbone         = args.with_etherbone,
         eth_ip                 = args.eth_ip,
         eth_dynamic_ip         = args.eth_dynamic_ip,
-        with_sdram             = args.with_sdram,
         eth_reset_time         = args.eth_reset_time,
-        **soc_core_argdict(args)
+        **parser.soc_argdict
     )
 
     if args.with_emmc:
         soc.add_sdcard(software_debug=False)
 
-    builder = Builder(soc, **builder_argdict(args))
-    builder_kwargs = vivado_build_argdict(args) if args.toolchain == "vivado" else {}
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build(**builder_kwargs)
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()

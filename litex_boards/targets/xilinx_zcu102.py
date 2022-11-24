@@ -8,6 +8,8 @@
 
 from migen import *
 
+from litex.gen import LiteXModule
+
 from litex_boards.platforms import xilinx_zcu102
 
 from litex.build.io import CRG
@@ -21,38 +23,33 @@ from litex.soc.cores.led import LedChaser
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, sys_clk_freq, with_ethernet=False, with_led_chaser=True, **kwargs):
+    def __init__(self, sys_clk_freq=125e6, with_ethernet=False, with_led_chaser=True, **kwargs):
         platform = xilinx_zcu102.Platform()
 
         # CRG --------------------------------------------------------------------------------------
-        self.submodules.crg = CRG(sys_clk_freq)
+        self.crg = CRG(platform.request("clk125"))
 
         # SoCCore ----------------------------------------------------------------------------------
         SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX SoC on ZCU102", **kwargs)
 
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
-            self.submodules.leds = LedChaser(
+            self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
                 sys_clk_freq = sys_clk_freq
             )
 
 # Build --------------------------------------------------------------------------------------------
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on ZCU102")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",        action="store_true", help="Build design.")
-    target_group.add_argument("--load",         action="store_true", help="Load bitstream.")
-    target_group.add_argument("--sys-clk-freq", default=125e6,       help="System clock generator.")
-    builder_args(parser)
-    soc_core_args(parser)
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=xilinx_zcu102.Platform, description="LiteX SoC on ZCU102.")
+    parser.add_target_argument("--sys-clk-freq", default=125e6, type=float, help="System clock generator.")
     args = parser.parse_args()
 
-    soc = BaseSoC(sys_clk_freq=int(float(args.sys_clk_freq)), **soc_core_argdict(args))
-    builder = Builder(soc, **builder_argdict(args))
+    soc = BaseSoC(sys_clk_freq=args.sys_clk_freq, **parser.soc_argdict)
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build()
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()
