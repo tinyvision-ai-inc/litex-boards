@@ -45,7 +45,7 @@ class _CRG(Module):
 
 # BaseSoc -----------------------------------------------------------------------------------------
 class BaseSoC(SoCCore):
-    def __init__(self, bios_flash_offset, sys_clk_freq=int(12e6), **kwargs):
+    def __init__(self, bios_flash_offset, sys_clk_freq = 12e6, **kwargs):
         platform = upduino_v3.Platform()
         
         # CRG --------------------------------------------------------------------------------------
@@ -101,18 +101,18 @@ def main():
     from litex.soc.integration.soc import LiteXSoCArgumentParser
     parser = LiteXSoCArgumentParser(description="LiteX SoC on Upduino_v3")
     target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",             action="store_true", help="Build design.")
-    target_group.add_argument("--sys-clk-freq",      default=12e6,        help="System clock frequency.")
-    target_group.add_argument("--bios-flash-offset", default="0x20000",   help="BIOS offset in SPI Flash.")
-    target_group.add_argument("--flash",             action="store_true", help="Flash Bitstream")
+    target_group.add_argument("--build",             action="store_true",      help="Build design.")
+    target_group.add_argument("--sys-clk-freq",      default=12e6, type=float, help="System clock frequency.")
+    target_group.add_argument("--bios-flash-offset", default="0x20000",        help="BIOS offset in SPI Flash.")
+    target_group.add_argument("--flash",             action="store_true",      help="Flash Bitstream")
     builder_args(parser)
     soc_core_args(parser)
     icestorm_args(parser)
     args = parser.parse_args()
-
+# note to future me: Test bios-flash-offset, default="0x40000" and possibly load arg
     soc = BaseSoC(
         bios_flash_offset = int(args.bios_flash_offset, 0),
-        sys_clk_freq      = int(float(args.sys_clk_freq)),
+        sys_clk_freq      = args.sys_clk_freq,
         **soc_core_argdict(args)
     )
     builder = Builder(soc, **builder_argdict(args))
