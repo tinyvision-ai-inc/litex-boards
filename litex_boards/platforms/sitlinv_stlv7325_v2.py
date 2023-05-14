@@ -1,6 +1,7 @@
 #
 # This file is part of LiteX-Boards.
 #
+# Copyright (c) 2023 Gabriel Somlo <gsomlo@gmail.com>
 # Copyright (c) 2022 Andrew Gillham <gillham@roadsign.com>
 # SPDX-License-Identifier: BSD-2-Clause
 
@@ -20,7 +21,7 @@ def _get_io(voltage="2.5V"):
         # Clk / Rst
         ("cpu_reset_n", 0, Pins("AC16"), IOStandard("LVCMOS15")),
 
-        ("clk100",      0, Pins("F17"), IOStandard("LVCMOS" + VCCIO)),
+        ("clk50",      0, Pins("F17"), IOStandard("LVCMOS" + VCCIO)),
         ("clk200", 0,
             Subsignal("p", Pins("AB11"), IOStandard("DIFF_SSTL15")),
             Subsignal("n", Pins("AC11"), IOStandard("DIFF_SSTL15"))
@@ -50,15 +51,15 @@ def _get_io(voltage="2.5V"):
 
         # I2C / AT24C04
         ("i2c", 0,
-            Subsignal("scl", Pins("U19")),
-            Subsignal("sda", Pins("U20")),
+            Subsignal("scl", Pins("U26")),
+            Subsignal("sda", Pins("V26")),
             IOStandard("LVCMOS" + VCCIO)
         ),
 
         # Serial
         ("serial", 0,
-            Subsignal("tx",  Pins("M25")),  # CH340_TX
-            Subsignal("rx",  Pins("L25")),  # CH340_RX
+            Subsignal("tx",  Pins("L23")),  # CP2102_TX
+            Subsignal("rx",  Pins("K21")),  # CP2102_RX
             IOStandard("LVCMOS" + VCCIO)
         ),
 
@@ -94,7 +95,7 @@ def _get_io(voltage="2.5V"):
                 IOStandard("DIFF_SSTL15"), Misc("IO_BUFFER_TYPE=NONE")),
             Subsignal("clk_n",   Pins("AD9"),
                 IOStandard("DIFF_SSTL15"), Misc("IO_BUFFER_TYPE=NONE")),
-            Subsignal("cke",     Pins("AB9"),  IOStandard("SSTL15")),
+            Subsignal("cke",     Pins("AB10"), IOStandard("SSTL15")),
             Subsignal("odt",     Pins("AA12"), IOStandard("SSTL15")),
             Subsignal("reset_n", Pins("AB20"), IOStandard("LVCMOS15")),
             Misc("SLEW=FAST"),
@@ -102,9 +103,9 @@ def _get_io(voltage="2.5V"):
         ),
         # 2 Rank Signals:
         # Subsignal("cs_n",  Pins("AD13"), IOStandard("SSTL15")),
-        # Subsignal("clk_p", Pins("AA10"), IOStandard("DIFF_SSTL15")),
-        # Subsignal("clk_n", Pins("AB10"), IOStandard("DIFF_SSTL15")),
-        # Subsignal("cke",   Pins("AA9"), IOStandard("SSTL15")),
+        # Subsignal("clk_p", Pins("AA9"), IOStandard("DIFF_SSTL15")),
+        # Subsignal("clk_n", Pins("AB9"), IOStandard("DIFF_SSTL15")),
+        # Subsignal("cke",   Pins("AA10"), IOStandard("SSTL15")),
         # Subsignal("odt",   Pins("Y13"),  IOStandard("SSTL15")),
 
         ## TODO verify / test
@@ -132,73 +133,75 @@ def _get_io(voltage="2.5V"):
 
         # SDCard
         ("spisdcard", 0,
-            Subsignal("clk",  Pins("N21")),
-            Subsignal("cs_n", Pins("P19")),
-            Subsignal("mosi", Pins("U21"), Misc("PULLUP True")),
-            Subsignal("miso", Pins("N16"), Misc("PULLUP True")),
+            Subsignal("clk",  Pins("V22")),
+            Subsignal("cs_n", Pins("W23")),
+            Subsignal("mosi", Pins("W24"), Misc("PULLUP True")),
+            Subsignal("miso", Pins("U22"), Misc("PULLUP True")),
             Misc("SLEW=FAST"),
             IOStandard("LVCMOS" + VCCIO)
         ),
         ("sdcard", 0,
-            Subsignal("clk", Pins("N21")),
-            Subsignal("cmd", Pins("U21"), Misc("PULLUP True")),
-            Subsignal("data", Pins("N16 U16 N22 P19"), Misc("PULLUP True")),
+            Subsignal("clk", Pins("V22")),
+            Subsignal("cmd", Pins("W24"), Misc("PULLUP True")),
+            Subsignal("data", Pins("U22 V21 W21 W23"), Misc("PULLUP True")),
             Misc("SLEW=FAST"),
             IOStandard("LVCMOS" + VCCIO)
         ),
 
-        # GMII Ethernet
+        # RGMII Ethernet
         ("eth_clocks", 0,
-            Subsignal("tx",  Pins("E12"), IOStandard("LVCMOS25")),
-            Subsignal("gtx", Pins("F13"), IOStandard("LVCMOS25")),
+            Subsignal("tx",  Pins("D11"), IOStandard("LVCMOS25")),
             Subsignal("rx",  Pins("C12"), IOStandard("LVCMOS25"))
         ),
         ("eth_clocks", 1,
-            Subsignal("tx",  Pins("C9"),  IOStandard("LVCMOS25")),
-            Subsignal("gtx", Pins("D8"),  IOStandard("LVCMOS25")),
+            Subsignal("tx",  Pins("B11"),  IOStandard("LVCMOS25")),
             Subsignal("rx",  Pins("E10"), IOStandard("LVCMOS25"))
         ),
         ("eth", 0,
-            Subsignal("rst_n",   Pins("D11")),
-            # Subsignal("int_n",   Pins("")),
-            Subsignal("mdio",    Pins("K15")),
-            Subsignal("mdc",     Pins("M16")),
-            Subsignal("rx_dv",   Pins("G14")),
-            Subsignal("rx_er",   Pins("F14")),
-            Subsignal("rx_data", Pins("H14 J14 J13 H13 B15 A15 B14 A14")),
-            Subsignal("tx_en",   Pins("F12")),
-            Subsignal("tx_er",   Pins("E13")),
-            Subsignal("tx_data", Pins("G12 E11 G11 C14 D14 C13 C11 D13")),
+            Subsignal("rst_n",   Pins("J8")),
+            Subsignal("mdio",    Pins("H11")),
+            Subsignal("mdc",     Pins("F9")),
+            Subsignal("rx_ctl",  Pins("F8")),
+            Subsignal("rx_data", Pins("D8 D9 C9 D10")),
+            Subsignal("tx_ctl",  Pins("C14")),
+            Subsignal("tx_data", Pins("E12 D13 C13 D14")),
             IOStandard("LVCMOS25")
         ),
         ("eth", 1,
-            Subsignal("rst_n",   Pins("J8")),
-            # Subsignal("int_n",   Pins("")),
-            Subsignal("mdio",    Pins("G9")),
-            Subsignal("mdc",     Pins("H8")),
-            Subsignal("rx_dv",   Pins("A12")),
-            Subsignal("rx_er",   Pins("D10")),
-            Subsignal("rx_data", Pins("A13 B12 B11 A10 B10 A9 B9 A8")),
-            Subsignal("tx_en",   Pins("F8")),
-            Subsignal("tx_er",   Pins("D9")),
-            Subsignal("tx_data", Pins("H11 J11 H9 J10 H12 F10 G10 F9")),
+            Subsignal("rst_n",   Pins("B14")),
+            Subsignal("mdio",    Pins("B15")),
+            Subsignal("mdc",     Pins("A15")),
+            Subsignal("rx_ctl",  Pins("A8")),
+            Subsignal("rx_data", Pins("B9 A9 B10 A10")),
+            Subsignal("tx_ctl",  Pins("A14")),
+            Subsignal("tx_data", Pins("B12 A12 A13 C11")),
             IOStandard("LVCMOS25")
         ),
 
         # HDMI out
         ("hdmi_out", 0,
-            Subsignal("clk_p",   Pins("R21"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
-            Subsignal("clk_n",   Pins("P21"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
-            Subsignal("data0_p", Pins("N18"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
-            Subsignal("data0_n", Pins("M19"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
-            Subsignal("data1_p", Pins("M21"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
-            Subsignal("data1_n", Pins("M22"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
-            Subsignal("data2_p", Pins("K25"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
-            Subsignal("data2_n", Pins("K26"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
-            Subsignal("scl",     Pins("K21"), IOStandard("LVCMOS" + VCCIO)),
-            Subsignal("sda",     Pins("L23"), IOStandard("LVCMOS" + VCCIO)),
-            Subsignal("hdp",     Pins("N26"), IOStandard("LVCMOS" + VCCIO)),
-            Subsignal("cec",     Pins("M26"), IOStandard("LVCMOS" + VCCIO)),
+            Subsignal("clk_p",   Pins("F14"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
+            Subsignal("clk_n",   Pins("F13"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
+            Subsignal("data0_p", Pins("G12"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
+            Subsignal("data0_n", Pins("F12"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
+            Subsignal("data1_p", Pins("G10"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
+            Subsignal("data1_n", Pins("G9"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
+            Subsignal("data2_p", Pins("H9"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
+            Subsignal("data2_n", Pins("H8"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
+        ),
+
+        # HDMI in
+        ("hdmi_in", 0,
+            Subsignal("clk_p",   Pins("G11"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
+            Subsignal("clk_n",   Pins("F10"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
+            Subsignal("data0_p", Pins("J13"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
+            Subsignal("data0_n", Pins("H13"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
+            Subsignal("data1_p", Pins("J11"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
+            Subsignal("data1_n", Pins("J10"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
+            Subsignal("data2_p", Pins("H14"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
+            Subsignal("data2_n", Pins("G14"), IOStandard("TMDS_33" if VCCIO == "33" else "LVDS_25")),
+            Subsignal("scl",     Pins("U21"), IOStandard("LVCMOS" + VCCIO)),
+            Subsignal("sda",     Pins("Y20"), IOStandard("LVCMOS" + VCCIO)),
         ),
 
         # PCIe
@@ -273,8 +276,8 @@ def _get_io(voltage="2.5V"):
 
         # SI5338 (optional part per seller?)
         ("si5338_i2c", 0,
-            Subsignal("sck", Pins("U19"), IOStandard("LVCMOS" + VCCIO)),
-            Subsignal("sda", Pins("U20"), IOStandard("LVCMOS" + VCCIO))
+            Subsignal("sck", Pins("U26"), IOStandard("LVCMOS" + VCCIO)),
+            Subsignal("sda", Pins("V26"), IOStandard("LVCMOS" + VCCIO))
         ),
         ("si5338_clkin", 0,  # CLK2A/B
             Subsignal("p", Pins("K6"), IOStandard("LVDS_25")),
@@ -286,6 +289,7 @@ def _get_io(voltage="2.5V"):
 
 # Connectors ---------------------------------------------------------------------------------------
 
+        #GLS FIXME
 _connectors = [
     ("LPC", {
         # Row C
@@ -299,48 +303,48 @@ _connectors = [
         "LA10_N"        : "AE26",
         "LA14_P"        : "Y25",
         "LA14_N"        : "Y26",
-        "LA18_CC_P"     : "U26",
-        "LA18_CC_N"     : "V26",
+        "LA18_CC_P"     : "P23",
+        "LA18_CC_N"     : "N23",
         "LA27_P"        : "R26",
         "LA27_N"        : "P26",
 
         # Row D
         "GBTCLK0_M2C_P" : "", # not connected
         "GBTCLK0_M2C_N" : "", # not connected
-        "LA01_CC_P"     : "AE22",
-        "LA01_CC_N"     : "AF22",
+        "LA01_CC_P"     : "AA23",
+        "LA01_CC_N"     : "AB24",
         "LA05_P"        : "AF24",
         "LA05_N"        : "AF25",
         "LA09_P"        : "AB22",
         "LA09_N"        : "AC22",
         "LA13_P"        : "AB26",
         "LA13_N"        : "AC26",
-        "LA17_CC_P"     : "W25",
-        "LA17_CC_N"     : "W26",
-        "LA23_P"        : "AA23",
-        "LA23_N"        : "AB24",
+        "LA17_CC_P"     : "R22",
+        "LA17_CC_N"     : "R23",
+        "LA23_P"        : "T24",
+        "LA23_N"        : "T25",
         "LA26_P"        : "U17",
         "LA26_N"        : "T17",
 
         # Row G
         "CLK1_M2C_P"    : "Y23",
         "CLK1_M2C_N"    : "AA24",
-        "LA00_CC_P"     : "AA25",
-        "LA00_CC_N"     : "AB25",
+        "LA00_CC_P"     : "Y22",
+        "LA00_CC_N"     : "AA22",
         "LA03_P"        : "U24",
         "LA03_N"        : "U25",
-        "LA08_P"        : "T24",
-        "LA08_N"        : "T25",
-        "LA12_P"        : "R22",
-        "LA12_N"        : "R23",
-        "LA16_P"        : "R25",
-        "LA16_N"        : "P25",
+        "LA08_P"        : "AE22",
+        "LA08_N"        : "AF22",
+        "LA12_P"        : "W25",
+        "LA12_N"        : "W26",
+        "LA16_P"        : "AA25",
+        "LA16_N"        : "AB25",
         "LA20_P"        : "P24",
         "LA20_N"        : "N24",
-        "LA22_P"        : "P23",
-        "LA22_N"        : "N23",
-        "LA25_P"        : "V21",
-        "LA25_N"        : "W21",
+        "LA22_P"        : "M21",
+        "LA22_N"        : "M22",
+        "LA25_P"        : "M25",
+        "LA25_N"        : "L25",
         "LA29_P"        : "R16",
         "LA29_N"        : "R17",
         "LA31_P"        : "P16",
@@ -349,8 +353,8 @@ _connectors = [
         "LA33_N"        : "T23",
 
         # Row H
-        "CLK0_M2C_P"    : "Y22",
-        "CLK0_M2C_N"    : "AA22",
+        "CLK0_M2C_P"    : "AC23",
+        "CLK0_M2C_N"    : "AC24",
         "LA02_P"        : "V23",
         "LA02_N"        : "V24",
         "LA04_P"        : "AD21",
@@ -361,21 +365,26 @@ _connectors = [
         "LA11_N"        : "AD24",
         "LA15_P"        : "AD25",
         "LA15_N"        : "AE25",
-        "LA19_P"        : "AC23",
-        "LA19_N"        : "AC24",
-        "LA21_P"        : "W23",
-        "LA21_N"        : "W24",
+        "LA19_P"        : "R25",
+        "LA19_N"        : "P25",
+        "LA21_P"        : "U19",
+        "LA21_N"        : "U20",
         "LA24_P"        : "T18",
         "LA24_N"        : "T19",
         "LA28_P"        : "R18",
         "LA28_N"        : "P18",
-        "LA30_P"        : "U22",
+        "LA30_P"        : "M19",
         "LA30_N"        : "V22",
         "LA32_P"        : "T20",
         "LA32_N"        : "R20",
         }
     ),
     ("BTB-A", {
+        10: "P19", # P
+        11: "P20", # N
+
+        13: "N21", # P
+        14: "N22", # N
         15: "K23", # P
         16: "J23", # N
 
@@ -400,10 +409,18 @@ _connectors = [
         36: "E23", # N
     }),
     ("BTB-B", {
+         5: "W20", # P
+         6: "Y21", # N
+
+         8: "N19", # P
+         9: "M20", # N
+        10: "N26", # P
+        11: "M26", # N
+
         13: "L22", # P
         14: "K22", # N
-        15: "N19", # P
-        16: "M20", # N
+        15: "K25", # P
+        16: "K26", # N
 
         18: "J21", # P
         19: "H22", # N
@@ -423,6 +440,9 @@ _connectors = [
         33: "B20", # P
         34: "A20", # N
         35: "B26",
+
+        38: "K15",
+        39: "M16",
     }),
     ("AB", {
          #    N          P
@@ -477,7 +497,7 @@ set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]
         self.toolchain.additional_commands = ["write_cfgmem -force -format bin -interface spix4 -size 16 -loadbit \"up 0x0 {build_name}.bit\" -file {build_name}.bin"]
 
     def create_programmer(self):
-        return OpenOCD("openocd_xc7_ft232.cfg", "bscan_spi_xc7a325t.bit")
+        return OpenOCD("openocd_xc7_ft4232.cfg", "bscan_spi_xc7a325t.bit")
 
     def do_finalize(self, fragment):
         Xilinx7SeriesPlatform.do_finalize(self, fragment)

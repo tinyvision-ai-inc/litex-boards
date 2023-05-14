@@ -8,23 +8,25 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 from migen import *
+from migen.fhdl.specials import Tristate
 
 from litex.gen import *
 
 from litex_boards.platforms import mnt_rkx7
 
-from litex.soc.cores.clock import *
+
 from litex.soc.integration.soc_core import *
 from litex.soc.integration.soc import SoCRegion
 from litex.soc.integration.builder import *
 from litex.soc.interconnect.csr import *
 from litex.soc.interconnect.axi import *
 from litex.soc.interconnect.wishbone import *
+
+from litex.soc.cores.clock import *
 from litex.soc.cores.bitbang import I2CMaster
 from litex.soc.cores.gpio import GPIOOut
 from litex.soc.cores.video import VideoDVIPHY
 from litex.soc.cores.usb_ohci import USBOHCI
-from migen.fhdl.specials import Tristate
 
 from litedram.modules import IS43TR16512B
 from litedram.phy import s7ddrphy
@@ -41,6 +43,7 @@ class _CRG(LiteXModule):
         self.cd_idelay = ClockDomain()
         self.cd_dvi    = ClockDomain(reset_less=True)
         self.cd_usb    = ClockDomain()
+        self.cd_hdmi   = ClockDomain(reset_less=True)
 
         clkin = platform.request("clk100")
 
@@ -55,12 +58,15 @@ class _CRG(LiteXModule):
         platform.add_false_path_constraints(self.cd_sys.clk, pll.clkin)
 
         # USB clock
-        pll.create_clkout(self.cd_usb, 48e6)
+        pll.create_clkout(self.cd_usb, int(48e6))
+
+        # HDMI 640x480 clock
+        pll.create_clkout(self.cd_hdmi, int(25e6))
 
         self.pll2 = pll2 = S7MMCM(speedgrade=-2)
         self.comb += pll2.reset.eq(self.rst)
         pll2.register_clkin(clkin, 100e6)
-        # DVI/HDMI pixel clock
+        # DVI pixel clock
         pll2.create_clkout(self.cd_dvi, 80e6) # display wants 162e6, but we can underclock
         platform.add_false_path_constraints(self.cd_sys.clk, pll2.clkin)
 
@@ -79,7 +85,8 @@ class BaseSoC(SoCCore):
         with_ethernet  = True,
         with_etherbone = False,
         with_spi_flash = True,
-        with_usb_host  = False,
+        with_usb_host  = True,
+        with_analyzer  = False,
         **kwargs):
         platform = mnt_rkx7.Platform()
 
@@ -161,38 +168,41 @@ class BaseSoC(SoCCore):
         self.add_video_framebuffer(phy=self.videophy, timings=video_timings, clock_domain="dvi")
 
         # HDMI -------------------------------------------------------------------------------------
-        # Untested: 2x VideoDVIPHYs and framebuffers in parallel
-        #self.videophy = VideoDVIPHY(platform.request("hdmi"), clock_domain="dvi")
+        # Untested: 2x framebuffers in parallel
+        self.videophy_hdmi = VideoDVIPHY(platform.request("hdmi"), clock_domain="hdmi")
+        self.add_video_terminal(phy=self.videophy_hdmi, timings="640x480@75Hz", clock_domain="hdmi")
 
         # USB Host ---------------------------------------------------------------------------------
         if with_usb_host:
             self.usb_ohci = USBOHCI(platform, platform.request("usb"))
             self.bus.add_slave("usb_ohci_ctrl", self.usb_ohci.wb_ctrl, region=SoCRegion(origin=self.mem_map["usb_ohci"], size=0x100000, cached=False))
-            self.dma_bus.add_master("usb_ohci_dma", master=self.usb_ohci.wb_dma)
+            dma_bus = getattr(self, "dma_bus", self.bus)
+            dma_bus.add_master("usb_ohci_dma", master=self.usb_ohci.wb_dma)
             self.comb += self.cpu.interrupt[16].eq(self.usb_ohci.interrupt)
 
-        # LiteScope UART
-        self.add_uartbone(name="litescope_serial")
-        # LiteScope Analyzer (optional)
-        # analyzer_signals = [
-        #     ulpi_data.din,
-        #     utmi.linestate,
-        #     utmi.txvalid,
-        #     utmi.rxerror,
-        #     utmi.rxvalid,
-        #     usb_ulpi.dir,
-        #     usb_ulpi.stp,
-        #     usb_ulpi.nxt,
-        #     usbh_dbg_state,
-        #     ulpi_dbg_state,
-        #     usb_host_intr,
-        #     usb_host_dbg_intr,
-        #     ]
-        # from litescope import LiteScopeAnalyzer
-        # self.analyzer = LiteScopeAnalyzer(analyzer_signals,
-        #                                              depth        = 256,
-        #                                              clock_domain = "ulpi",
-        #                                              csr_csv      = "analyzer.csv")
+        # LiteScope Analyzer -----------------------------------------------------------------------
+        if with_analyzer:
+            from litescope import LiteScopeAnalyzer
+            self.add_uartbone(name="debug_serial")
+            analyzer_signals = [
+                ulpi_data.din,
+                utmi.linestate,
+                utmi.txvalid,
+                utmi.rxerror,
+                utmi.rxvalid,
+                usb_ulpi.dir,
+                usb_ulpi.stp,
+                usb_ulpi.nxt,
+                usbh_dbg_state,
+                ulpi_dbg_state,
+                usb_host_intr,
+                usb_host_dbg_intr,
+            ]
+            self.analyzer = LiteScopeAnalyzer(analyzer_signals,
+                depth        = 256,
+                clock_domain = "ulpi",
+                csr_csv      = "analyzer.csv"
+            )
 
 # Build --------------------------------------------------------------------------------------------
 
@@ -201,7 +211,7 @@ def main():
     parser = LiteXArgumentParser(platform=mnt_rkx7.Platform, description="LiteX SoC on MNT-RKX7.")
     parser.add_target_argument("--sys-clk-freq",    default=100e6,  type=float,         help="System clock frequency.")
     parser.add_target_argument("--with-spi-flash",  action="store_true", default=True,  help="Enable SPI Flash (MMAPed).")
-    parser.add_target_argument("--with-usb-host",   action="store_true", default=False, help="Enable USB host support.")
+    parser.add_target_argument("--with-usb-host",   action="store_true", default=True, help="Enable USB host support.")
     sdopts = parser.target_group.add_mutually_exclusive_group()
     sdopts.add_argument("--with-spi-sdcard",     action="store_true",               help="Enable SPI-mode SDCard support.")
     sdopts.add_argument("--with-sdcard",         action="store_true", default=True, help="Enable SDCard support.")

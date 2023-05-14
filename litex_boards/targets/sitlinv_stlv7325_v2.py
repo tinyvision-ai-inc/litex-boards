@@ -3,6 +3,7 @@
 #
 # This file is part of LiteX-Boards.
 #
+# Copyright (c) 2023 Gabriel Somlo <gsomlo@gmail.com>
 # Copyright (c) 2022 Andrew Gillham <gillham@roadsign.com>
 # Copyright (c) 2014-2015 Sebastien Bourdeauducq <sb@m-labs.hk>
 # Copyright (c) 2014-2020 Florent Kermarrec <florent@enjoy-digital.fr>
@@ -15,7 +16,7 @@ from migen import *
 
 from litex.gen import *
 
-from litex_boards.platforms import sitlinv_stlv7325
+from litex_boards.platforms import sitlinv_stlv7325_v2
 
 from litex.soc.cores.clock import *
 from litex.soc.integration.soc_core import *
@@ -27,7 +28,7 @@ from litex.soc.cores.video   import VideoS7HDMIPHY
 from litedram.modules import MT8JTF12864
 from litedram.phy import s7ddrphy
 
-from liteeth.phy import LiteEthPHY
+from liteeth.phy.s7rgmii import LiteEthPHYRGMII
 
 from litepcie.phy.s7pciephy import S7PCIEPHY
 from litepcie.software import generate_litepcie_software
@@ -47,7 +48,7 @@ class _CRG(LiteXModule):
 
         # Clk/Rst.
         clk200 = platform.request("clk200")
-        clk100 = platform.request("clk100")
+        clk50  = platform.request("clk50")
         rst_n  = platform.request("cpu_reset_n")
 
         # PLL.
@@ -61,7 +62,7 @@ class _CRG(LiteXModule):
 
         self.submodules.pll2 = pll2 = S7PLL(speedgrade=-2)
         self.comb += pll2.reset.eq(~rst_n | self.rst)
-        pll2.register_clkin(clk100, 100e6)
+        pll2.register_clkin(clk50, 50e6)
         pll2.create_clkout(self.cd_hdmi,   25e6,  margin=0)
         pll2.create_clkout(self.cd_hdmi5x, 125e6, margin=0)
 
@@ -73,25 +74,21 @@ class BaseSoC(SoCCore):
     def __init__(self, sys_clk_freq=100e6,
         vccio                  = "2.5V",
         with_ethernet          = False,
-        with_etherbone         = False,
-        local_ip               = "192.168.1.50",
-        remote_ip              = "",
-        eth_dynamic_ip         = False,
         with_led_chaser        = True,
         with_pcie              = False,
-        with_sata              = False,
-        with_jtagbone          = True,
+        with_sata              = False, sata_gen="gen2",
+        with_jtagbone          = False,
         with_video_colorbars   = False,
         with_video_framebuffer = False,
         with_video_terminal    = False,
         **kwargs):
-        platform = sitlinv_stlv7325.Platform(vccio)
+        platform = sitlinv_stlv7325_v2.Platform(vccio)
 
         # CRG --------------------------------------------------------------------------------------
         self.crg = _CRG(platform, sys_clk_freq)
 
         # SoCCore ----------------------------------------------------------------------------------
-        SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX SoC on Sitlinv STLV7325", **kwargs)
+        SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX SoC on Sitlinv STLV7325-v2", **kwargs)
 
         # DDR3 SDRAM -------------------------------------------------------------------------------
         if not self.integrated_main_ram_size:
@@ -111,29 +108,14 @@ class BaseSoC(SoCCore):
             self.add_jtagbone()
 
         # Ethernet / Etherbone ---------------------------------------------------------------------
-        if with_ethernet or with_etherbone:
-            self.ethphy = LiteEthPHY(
+        if with_ethernet:
+            self.ethphy = LiteEthPHYRGMII(
                 clock_pads = self.platform.request("eth_clocks", 0),
                 pads       = self.platform.request("eth", 0),
-                clk_freq   = self.clk_freq)
-            if with_ethernet:
-                self.add_ethernet(phy=self.ethphy, dynamic_ip=eth_dynamic_ip)
-            if with_etherbone:
-                self.add_etherbone(phy=self.ethphy)
-
-        if local_ip:
-            local_ip = local_ip.split(".")
-            self.add_constant("LOCALIP1", int(local_ip[0]))
-            self.add_constant("LOCALIP2", int(local_ip[1]))
-            self.add_constant("LOCALIP3", int(local_ip[2]))
-            self.add_constant("LOCALIP4", int(local_ip[3]))
-
-        if remote_ip:
-            remote_ip = remote_ip.split(".")
-            self.add_constant("REMOTEIP1", int(remote_ip[0]))
-            self.add_constant("REMOTEIP2", int(remote_ip[1]))
-            self.add_constant("REMOTEIP3", int(remote_ip[2]))
-            self.add_constant("REMOTEIP4", int(remote_ip[3]))
+                tx_delay = 1.417e-9,
+                rx_delay = 1.417e-9,
+            )
+            self.add_ethernet(phy=self.ethphy)
 
         # PCIe -------------------------------------------------------------------------------------
         if with_pcie:
@@ -158,7 +140,7 @@ class BaseSoC(SoCCore):
             self.sata_phy = LiteSATAPHY(platform.device,
                 refclk     = sata_refclk,
                 pads       = platform.request("sata", 0),
-                gen        = "gen2",
+                gen        = sata_gen,
                 clk_freq   = sys_clk_freq,
                 data_width = 16)
 
@@ -188,18 +170,14 @@ class BaseSoC(SoCCore):
 
 def main():
     from litex.build.parser import LiteXArgumentParser
-    parser = LiteXArgumentParser(platform=sitlinv_stlv7325.Platform, description="LiteX SoC on AliExpress STLV7325.")
+    parser = LiteXArgumentParser(platform=sitlinv_stlv7325_v2.Platform, description="LiteX SoC on AliExpress STLV7325-v2.")
     parser.add_target_argument("--sys-clk-freq",  default=100e6, type=float, help="System clock frequency.")
     parser.add_target_argument("--vccio",         default="2.5V", type=str, help="IO Voltage (set by J4), can be 2.5V or 3.3V")
-    ethopts = parser.target_group.add_mutually_exclusive_group()
-    ethopts.add_argument("--with-ethernet",         action="store_true",    help="Enable Ethernet support.")
-    ethopts.add_argument("--with-etherbone",        action="store_true",    help="Enable Etherbone support.")
-    parser.add_target_argument("--remote-ip",       default="192.168.1.100",help="Remote IP address of TFTP server.")
-    parser.add_target_argument("--local-ip",        default="192.168.1.50", help="Local IP address.")
-    parser.add_target_argument("--eth-dynamic-ip",  action="store_true",    help="Enable dynamic Ethernet IP addresses setting.")
     parser.add_target_argument("--with-pcie",       action="store_true",    help="Enable PCIe support.")
     parser.add_target_argument("--driver",          action="store_true",    help="Generate PCIe driver.")
+    parser.add_target_argument("--with-ethernet",   action="store_true",    help="Enable Ethernet support.")
     parser.add_target_argument("--with-sata",       action="store_true",    help="Enable SATA support.")
+    parser.add_target_argument("--sata-gen",        default="2",    help="SATA Gen..", choices=["1", "2", "3"])
     parser.add_target_argument("--with-jtagbone",   action="store_true",    help="Enable Jtagbone support.")
     sdopts = parser.target_group.add_mutually_exclusive_group()
     sdopts.add_argument("--with-spi-sdcard", action="store_true", help="Enable SPI-mode SDCard support.")
@@ -210,18 +188,13 @@ def main():
     viopts.add_argument("--with-video-colorbars",   action="store_true", help="Enable Video Colorbars (HDMI).")
     args = parser.parse_args()
 
-    assert not (args.with_etherbone and args.eth_dynamic_ip)
-
     soc = BaseSoC(
         sys_clk_freq           = args.sys_clk_freq,
         vccio                  = args.vccio,
         with_ethernet          = args.with_ethernet,
-        with_etherbone         = args.with_etherbone,
-        local_ip               = args.local_ip,
-        remote_ip              = args.remote_ip,
-        eth_dynamic_ip         = args.eth_dynamic_ip,
         with_pcie              = args.with_pcie,
         with_sata              = args.with_sata,
+        sata_gen               = "gen" + args.sata_gen,
         with_jtagbone          = args.with_jtagbone,
         with_video_colorbars   = args.with_video_colorbars,
         with_video_framebuffer = args.with_video_framebuffer,
