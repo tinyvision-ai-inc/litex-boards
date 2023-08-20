@@ -10,7 +10,8 @@ from litex.build.generic_platform import Subsignal, Pins, IOStandard, Misc
 
 # SevenSeg -----------------------------------------------------------------------------------------
 from migen import *
-from migen.genlib.misc import WaitTimer
+
+from litex.gen.genlib.misc import WaitTimer
 
 from litex.soc.interconnect.csr import AutoCSR, CSRStorage
 
@@ -38,7 +39,7 @@ class SevenSeg(Module, AutoCSR):
 
         self.comb += Case(hexa, cases)
 
-        timer = WaitTimer(int(period*sys_clk_freq/(2*n)))
+        timer = WaitTimer(period*sys_clk_freq/(2*n))
         self.submodules += timer
         self.comb += timer.wait.eq(~timer.done)
         self.sync += If(timer.done,
