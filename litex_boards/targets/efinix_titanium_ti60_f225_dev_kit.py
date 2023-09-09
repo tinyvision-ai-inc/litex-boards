@@ -91,14 +91,6 @@ class BaseSoC(SoCCore):
             if with_etherbone:
                 self.add_etherbone(phy=self.ethphy)
 
-            # FIXME: Avoid this.
-            platform.toolchain.excluded_ios.append(platform.lookup_request("eth_clocks").tx)
-            platform.toolchain.excluded_ios.append(platform.lookup_request("eth_clocks").rx)
-            platform.toolchain.excluded_ios.append(platform.lookup_request("eth").tx_data)
-            platform.toolchain.excluded_ios.append(platform.lookup_request("eth").tx_ctl)
-            platform.toolchain.excluded_ios.append(platform.lookup_request("eth").rx_data)
-            platform.toolchain.excluded_ios.append(platform.lookup_request("eth").mdio)
-
             # Extension board on P2 + External Logic Analyzer.
             _pmod_ios = [
                 ("debug", 0, Pins(

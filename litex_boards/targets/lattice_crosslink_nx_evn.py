@@ -21,6 +21,7 @@ from litex.build.generic_platform import *
 
 from litex.soc.cores.clock import *
 from litex.soc.integration.soc_core import *
+from litex.soc.integration.soc import SoCRegion
 from litex.soc.integration.builder import *
 from litex.soc.cores.led import LedChaser
 
@@ -62,12 +63,16 @@ class _CRG(LiteXModule):
 
 class BaseSoC(SoCCore):
     mem_map = {
-        "rom"  : 0x00000000,
-        "sram" : 0x40000000,
-        "csr"  : 0xf0000000,
+        "rom"      : 0x00000000,
+        "sram"     : 0x40000000,
+        "main_ram" : 0x60000000,
+        "csr"      : 0xf0000000,
     }
+
     def __init__(self, sys_clk_freq=75e6, device="LIFCL-40-9BG400C", toolchain="radiant",
         with_led_chaser = True,
+        with_spi_flash  = False,
+        with_uartbone   = False,
         **kwargs):
         platform = lattice_crosslink_nx_evn.Platform(device=device, toolchain=toolchain)
 
@@ -82,9 +87,11 @@ class BaseSoC(SoCCore):
         SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX SoC on Crosslink-NX Evaluation Board", **kwargs)
 
         # 128KB LRAM (used as SRAM) ---------------------------------------------------------------
-        size = 128*kB
-        self.spram = NXLRAM(32, size)
-        self.register_mem("sram", self.mem_map["sram"], self.spram.bus, size)
+        self.spram = NXLRAM(32, 64*kB)
+        self.bus.add_slave("sram", self.spram.bus, SoCRegion(origin=self.mem_map["sram"], size=16*kB))
+
+        self.main_ram = NXLRAM(32, 64*kB)
+        self.bus.add_slave("main_ram", self.main_ram.bus, SoCRegion(origin=self.mem_map["main_ram"], size=64*kB))
 
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
@@ -93,9 +100,14 @@ class BaseSoC(SoCCore):
                 sys_clk_freq = sys_clk_freq)
 
         # UARTBone ---------------------------------------------------------------------------------
-        debug_uart = False
-        if debug_uart:
+        if with_uartbone:
             self.add_uartbone()
+
+        # SPI Flash --------------------------------------------------------------------------------
+        if with_spi_flash:
+            from litespi.modules import MX25L12833F
+            from litespi.opcodes import SpiNorFlashOpCodes as Codes
+            self.add_spi_flash(mode="4x", clk_freq=100_000, module=MX25L12833F(Codes.READ_4_4_4), with_master=True)
 
 
 # Build --------------------------------------------------------------------------------------------
@@ -106,15 +118,19 @@ def main():
     parser.add_target_argument("--device",        default="LIFCL-40-9BG400C", help="FPGA device (LIFCL-40-9BG400C, LIFCL-40-8BG400CES, or LIFCL-40-8BG400CES2).")
     parser.add_target_argument("--sys-clk-freq",  default=75e6, type=float,   help="System clock frequency.")
     parser.add_target_argument("--serial",        default="serial",           help="UART Pins (serial (requires R15 and R17 to be soldered) or serial_pmod[0-2]).")
-    parser.add_target_argument("--programmer",    default="radiant",          help="Programmer (radiant or ecpprog).")
+    parser.add_target_argument("--programmer",    default="radiant",          help="Programmer (radiant or ecpprog or openocd).")
     parser.add_target_argument("--address",       default=0x0,                help="Flash address to program bitstream at.")
     parser.add_target_argument("--prog-target",   default="direct",           help="Programming Target (direct or flash).")
+    parser.add_target_argument("--with-spi-flash", action="store_true",       help="Enable SPI Flash (MMAPed).")
+    parser.add_target_argument("--with-uartbone", action="store_true",        help="Add UartBone on 1st serial.")
     args = parser.parse_args()
 
     soc = BaseSoC(
         sys_clk_freq = args.sys_clk_freq,
         device       = args.device,
         toolchain    = args.toolchain,
+        with_spi_flash = args.with_spi_flash,
+        with_uartbone = args.with_uartbone,
         **parser.soc_argdict
     )
     builder = Builder(soc, **parser.builder_argdict)
@@ -124,7 +140,7 @@ def main():
     if args.load:
         prog = soc.platform.create_programmer(args.prog_target, args.programmer)
         if args.programmer == "ecpprog" and args.prog_target == "flash":
-            prog.flash(address=args.address, bitstream=builder.get_bitstream_filename(mode="sram"))
+            prog.flash(args.address, builder.get_bitstream_filename(mode="sram"))
         else:
             prog.load_bitstream(builder.get_bitstream_filename(mode="sram"))
 
