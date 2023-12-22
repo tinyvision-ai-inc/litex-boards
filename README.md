@@ -97,8 +97,10 @@ Some of the suported boards, see yours? Give LiteX-Boards a try!
     ├── alchitry_cu
     ├── alchitry_mojo
     ├── aliexpress_xc7k420t
+    ├── aliexpress_xc7k70t
     ├── alinx_ax7010
     ├── alinx_axu2cga
+    ├── analog_pocket
     ├── antmicro_artix_dc_scm
     ├── antmicro_datacenter_ddr4_test_board
     ├── antmicro_lpddr4_test_board
@@ -172,6 +174,7 @@ Some of the suported boards, see yours? Give LiteX-Boards a try!
     ├── machdyne_konfekt
     ├── machdyne_kopflos
     ├── machdyne_krote
+    ├── machdyne_mozart_ml1
     ├── machdyne_noir
     ├── machdyne_schoko
     ├── marblemini
@@ -214,7 +217,9 @@ Some of the suported boards, see yours? Give LiteX-Boards a try!
     ├── sipeed_tang_nano_4k
     ├── sipeed_tang_nano_9k
     ├── sipeed_tang_nano
+    ├── sipeed_tang_mega_138k
     ├── sipeed_tang_primer_20k
+    ├── sipeed_tang_primer_25k
     ├── sipeed_tang_primer
     ├── sitlinv_a_e115fb
     ├── sitlinv_stlv7325

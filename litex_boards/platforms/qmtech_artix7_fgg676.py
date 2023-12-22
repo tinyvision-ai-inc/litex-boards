@@ -141,7 +141,7 @@ class Platform(Xilinx7SeriesPlatform):
     default_clk_period = 1e9/50e6
     kgates             = None
 
-    def __init__(self, kgates=100, toolchain="vivado", with_daughterboard=False):
+    def __init__(self, kgates=100, toolchain="vivado", with_daughterboard=False, with_rp2040_daughterboard=False):
         assert(kgates in [75, 100], "kgates can only be 75 or 100 representing a XC7A75T, XC7TA100T")
         self.kgates = kgates
         device = f"xc7a{kgates}tfgg676-1"
@@ -160,17 +160,24 @@ class Platform(Xilinx7SeriesPlatform):
             io += daughterboard.io
             connectors += daughterboard.connectors
 
+        if with_rp2040_daughterboard:
+            from litex_boards.platforms.qmtech_rp2040_daughterboard import QMTechDaughterboard
+            daughterboard = QMTechDaughterboard(IOStandard("LVCMOS33"))
+            io += daughterboard.io
+            connectors += daughterboard.connectors
+
         Xilinx7SeriesPlatform.__init__(self, device, io, connectors, toolchain=toolchain)
+
         self.toolchain.bitstream_commands = \
             ["set_property BITSTREAM.CONFIG.SPI_BUSWIDTH 4 [current_design]",
-             "set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]"]
+            "set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]"]
         self.toolchain.additional_commands = \
             ["write_cfgmem -force -format bin -interface spix4 -size 16 "
-             "-loadbit \"up 0x0 {build_name}.bit\" -file {build_name}.bin"]
+            "-loadbit \"up 0x0 {build_name}.bit\" -file {build_name}.bin"]
+
         self.add_platform_command("set_property INTERNAL_VREF 0.750 [get_iobanks 16]")
         self.add_platform_command("set_property CFGBVS VCCO [current_design]")
         self.add_platform_command("set_property CONFIG_VOLTAGE 3.3 [current_design]")
-        self.toolchain.f4pga_device = device
 
     def create_programmer(self):
         bscan_spi = f"bscan_spi_xc7a{self.kgates}t.bit"
