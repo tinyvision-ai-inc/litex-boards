@@ -4,8 +4,8 @@
 # This file is part of LiteX-Boards.
 #
 # Copyright (c) 2022-2023 Icenowy Zheng <uwu@icenowy.me>
-# Copyright (c) 2022 Florent Kermarrec <florent@enjoy-digital.fr>
-# Copyright (c) 2023 Gwenhael Goavec-Merou <gwenhael@enjoy-digital.fr>
+# Copyright (c) 2022-2024 Florent Kermarrec <florent@enjoy-digital.fr>
+# Copyright (c) 2023-2024 Gwenhael Goavec-Merou <gwenhael@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
 
 from migen import *
@@ -27,15 +27,17 @@ from litedram.phy import GENSDRPHY, HalfRateGENSDRPHY
 from litedram.phy import GW5DDRPHY
 from litex.build.io import DDROutput
 
-from litex_boards.platforms import sipeed_tang_mega_138k
+from litex_boards.platforms import sipeed_tang_mega_138k_pro
 
 # CRG ----------------------------------------------------------------------------------------------
 
 class _CRG(LiteXModule):
-    def __init__(self, platform, sys_clk_freq, with_sdram=False, sdram_rate="1:2", with_ddr3=False, with_video_pll=False):
-        self.rst      = Signal()
-        self.cd_sys   = ClockDomain()
-        self.cd_por   = ClockDomain()
+    def __init__(self, platform, sys_clk_freq, cpu_clk_freq=0, with_sdram=False, sdram_rate="1:2", with_ddr3=False, with_video_pll=False):
+        self.rst    = Signal()
+        self.cd_sys = ClockDomain()
+        if cpu_clk_freq:
+            self.cd_cpu = ClockDomain()
+        self.cd_por = ClockDomain()
         if with_sdram:
             if sdram_rate == "1:2":
                 self.cd_sys2x    = ClockDomain()
@@ -51,21 +53,24 @@ class _CRG(LiteXModule):
             self.reset      = Signal()
 
         # Clk
-        self.clk50 = platform.request("clk50")
-        rst = platform.request("rst")
+        clk50 = platform.request("clk50")
+        rst   = platform.request("rst")
 
         # Power on reset
         por_count = Signal(16, reset=2**16-1)
         por_done  = Signal()
-        self.comb += self.cd_por.clk.eq(self.clk50)
+        self.comb += self.cd_por.clk.eq(clk50)
         self.comb += por_done.eq(por_count == 0)
         self.sync.por += If(~por_done, por_count.eq(por_count - 1))
 
         # PLL
         self.pll = pll = GW5APLL(devicename=platform.devicename, device=platform.device)
-        self.comb += pll.reset.eq(~por_done | self.rst | rst)
-        pll.register_clkin(self.clk50, 50e6)
+        self.comb += pll.reset.eq(~por_done | rst)
+        pll.register_clkin(clk50, 50e6)
         pll.create_clkout(self.cd_sys, sys_clk_freq, with_reset=not with_ddr3)
+        if cpu_clk_freq:
+            pll.create_clkout(self.cd_cpu, cpu_clk_freq, with_reset=False)
+        platform.toolchain.additional_cst_commands.append("INS_LOC \"PLL\" PLL_R[0]") # Magic incantation for Gowin-AE350 CPU :)
 
         # SDRAM clock
         if with_sdram:
@@ -87,10 +92,10 @@ class _CRG(LiteXModule):
                     i_CEN    = self.stop,
                     o_CLKOUT = self.cd_sys2x.clk
                 ),
-                AsyncResetSynchronizer(self.cd_sys, ~pll.locked | self.rst | self.reset),
+                AsyncResetSynchronizer(self.cd_sys, ~pll.locked | self.reset),
             ]
             # Init clock domain
-            self.comb += self.cd_init.clk.eq(self.clk50)
+            self.comb += self.cd_init.clk.eq(clk50)
             self.comb += self.cd_init.rst.eq(pll.reset)
 
         if with_video_pll:
@@ -122,17 +127,19 @@ class BaseSoC(SoCCore):
         with_rgb_led        = False,
         with_buttons        = True,
         **kwargs):
-
-        platform = sipeed_tang_mega_138k.Platform(toolchain="gowin")
+        platform = sipeed_tang_mega_138k_pro.Platform(toolchain="gowin")
 
         # CRG --------------------------------------------------------------------------------------
-        self.crg = _CRG(platform, sys_clk_freq,
+        cpu_clk_freq = int(800e6) if kwargs["cpu_type"] == "gowin_ae350" else 0
+        self.crg = _CRG(platform, sys_clk_freq, cpu_clk_freq,
             with_sdram     = with_sdram,
             with_ddr3      = with_ddr3,
-            with_video_pll = with_video_terminal)
-
+            with_video_pll = with_video_terminal,
+        )
         # SoCCore ----------------------------------------------------------------------------------
-        SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX SoC on Tang Mega 138K", **kwargs)
+        SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX SoC on Tang Mega 138K Pro", **kwargs)
+        if cpu_clk_freq:
+            self.add_config("CPU_CLK_FREQ", cpu_clk_freq)
 
         # DDR3 SDRAM -------------------------------------------------------------------------------
         if with_ddr3 and not self.integrated_main_ram_size:
@@ -171,32 +178,32 @@ class BaseSoC(SoCCore):
                 pads       = self.platform.request("eth"),
                 tx_delay   = 2e-9,
                 rx_delay   = 2e-9)
-            self.clk50_half = Signal()
+            clk50_half = Signal()
             self.specials += Instance("CLKDIV",
                 p_DIV_MODE = "2",
-                i_HCLKIN   = self.crg.clk50,
+                i_HCLKIN   = platform.lookup_request("clk50"),
                 i_RESETN   = 1,
                 i_CALIB    = 0,
-                o_CLKOUT   = self.clk50_half)
-            self.specials += DDROutput(1, 0, platform.request("ephy_clk"), self.clk50_half)
+                o_CLKOUT   = clk50_half)
+            self.specials += DDROutput(1, 0, platform.request("ephy_clk"), clk50_half)
             if with_ethernet:
                 self.add_ethernet(phy=self.ethphy, dynamic_ip=eth_dynamic_ip, data_width=32, software_debug=True)
             if with_etherbone:
                 self.add_etherbone(phy=self.ethphy, data_width=32)
 
-        if local_ip:
-            local_ip = local_ip.split(".")
-            self.add_constant("LOCALIP1", int(local_ip[0]))
-            self.add_constant("LOCALIP2", int(local_ip[1]))
-            self.add_constant("LOCALIP3", int(local_ip[2]))
-            self.add_constant("LOCALIP4", int(local_ip[3]))
+            if local_ip:
+                local_ip = local_ip.split(".")
+                self.add_constant("LOCALIP1", int(local_ip[0]))
+                self.add_constant("LOCALIP2", int(local_ip[1]))
+                self.add_constant("LOCALIP3", int(local_ip[2]))
+                self.add_constant("LOCALIP4", int(local_ip[3]))
 
-        if remote_ip:
-            remote_ip = remote_ip.split(".")
-            self.add_constant("REMOTEIP1", int(remote_ip[0]))
-            self.add_constant("REMOTEIP2", int(remote_ip[1]))
-            self.add_constant("REMOTEIP3", int(remote_ip[2]))
-            self.add_constant("REMOTEIP4", int(remote_ip[3]))
+            if remote_ip:
+                remote_ip = remote_ip.split(".")
+                self.add_constant("REMOTEIP1", int(remote_ip[0]))
+                self.add_constant("REMOTEIP2", int(remote_ip[1]))
+                self.add_constant("REMOTEIP3", int(remote_ip[2]))
+                self.add_constant("REMOTEIP4", int(remote_ip[3]))
 
         # SDR SDRAM --------------------------------------------------------------------------------
         if with_sdram and not self.integrated_main_ram_size:
@@ -215,7 +222,7 @@ class BaseSoC(SoCCore):
 
 def main():
     from litex.build.parser import LiteXArgumentParser
-    parser = LiteXArgumentParser(platform=sipeed_tang_mega_138k.Platform, description="LiteX SoC on Tang Mega 138K.")
+    parser = LiteXArgumentParser(platform=sipeed_tang_mega_138k_pro.Platform, description="LiteX SoC on Tang Mega 138K Pro.")
     parser.add_target_argument("--flash",           action="store_true",      help="Flash Bitstream.")
     parser.add_target_argument("--sys-clk-freq",    default=50e6, type=float, help="System clock frequency.")
     parser.add_target_argument("--with-sdram",      action="store_true",      help="Enable optional SDRAM module.")

@@ -1,12 +1,12 @@
 #
 # This file is part of LiteX-Boards.
 #
-# Copright (c) 2023 Lone Dynamics Corporation <info@lonedynamics.com>
+# Copyright (c) 2023 Lone Dynamics Corporation <info@lonedynamics.com>
 #
 # SPDX-License-Identifier: BSD-2-Clause
 
 from litex.build.generic_platform import *
-from litex.build.lattice import LatticePlatform
+from litex.build.lattice import LatticeECP5Platform
 from litex.build.openfpgaloader import OpenFPGALoader
 
 # IOs ----------------------------------------------------------------------------------------------
@@ -15,6 +15,7 @@ _io_vx = [
 
     # Clock
     ("clk48", 0,  Pins("A7"),  IOStandard("LVCMOS33")),
+    ("clk50", 0,  Pins("C7"),  IOStandard("LVCMOS33")),
 
     # SDRAM
     ("sdram_clock", 0, Pins("F16"), IOStandard("LVTTL33")),
@@ -63,10 +64,6 @@ _io_vx = [
     ),
 
     # ETHERNET
-    ("eth_clocks", 0,
-        Subsignal("ref_clk", Pins("C7")),
-        IOStandard("LVCMOS33")
-    ),
     ("eth", 0,
         Subsignal("rx_data", Pins("E4 D4"), Misc("PULLMODE=UP")),
         Subsignal("tx_data", Pins("E6 D6")),
@@ -76,23 +73,13 @@ _io_vx = [
         IOStandard("LVCMOS33")
     ),
 
-    # DEBUG UART
-    ("serial", 0,
-        Subsignal("tx", Pins("B3")),
-        Subsignal("rx", Pins("A2")),
-        IOStandard("LVCMOS33")
-    ),
-]
-
-_io_v0 = [
-
     # SD card w/ SD-mode interface
     ("sdcard", 0,
-        Subsignal("cd", Pins("A6"), Misc("PULLMODE=UP")),
-        Subsignal("clk", Pins("L3")),
-        Subsignal("cmd", Pins("M1"), Misc("DRIVE=8 PULLMODE=UP")),
-        Subsignal("data", Pins("L1 M2 M3 L2"), Misc("DRIVE=8 PULLMODE=UP")),
-        Misc("SLEWRATE=FAST"),
+        Subsignal("cd", Pins("A6"), Misc("PULLMODE=NONE")),
+        Subsignal("clk", Pins("L3"), Misc("PULLMODE=NONE")),
+        Subsignal("cmd", Pins("M1"), Misc("PULLMODE=NONE")),
+        Subsignal("data", Pins("L1 M2 M3 L2"), Misc("PULLMODE=NONE")),
+        #Misc("SLEWRATE=FAST"),
         IOStandard("LVCMOS33")
     ),
 
@@ -105,23 +92,44 @@ _io_v0 = [
         Misc("SLEWRATE=FAST"),
         IOStandard("LVCMOS33"),
     ),
+]
+
+_io_v0 = [
+
+    # DEBUG UART
+    ("serial", 0,
+        Subsignal("tx", Pins("B3")),
+        Subsignal("rx", Pins("A2")),
+        IOStandard("LVCMOS33")
+    ),
+
+]
+
+_io_v2 = [
+
+    # DEBUG UART
+    ("serial", 0,
+        Subsignal("tx", Pins("B4")),
+        Subsignal("rx", Pins("C4")),
+        IOStandard("LVCMOS33")
+    ),
 
 ]
 
 # Connectors ---------------------------------------------------------------------------------------
 
 _connectors_vx = [
-
+    ("X", "A4 A3 B3 A2"),
 ]
 
 # Platform -----------------------------------------------------------------------------------------
 
-class Platform(LatticePlatform):
+class Platform(LatticeECP5Platform):
     default_clk_name   = "clk48"
     default_clk_period = 1e9/48e6
 
-    def __init__(self, revision="v0", device="45F", toolchain="trellis", **kwargs):
-        assert revision in ["v0"]
+    def __init__(self, revision="v2", device="45F", toolchain="trellis", **kwargs):
+        assert revision in ["v0", "v1", "v2"]
         assert device in ["12F", "25F", "45F", "85F"]
         self.revision = revision
 
@@ -129,12 +137,14 @@ class Platform(LatticePlatform):
         connectors = _connectors_vx
 
         if revision == "v0": io += _io_v0
+        if revision == "v1": io += _io_v0
+        if revision == "v2": io += _io_v2
 
-        LatticePlatform.__init__(self, f"LFE5U-{device}-6BG256", io, connectors, toolchain=toolchain, **kwargs)
+        LatticeECP5Platform.__init__(self, f"LFE5U-{device}-6BG256", io, connectors, toolchain=toolchain, **kwargs)
 
     def create_programmer(self, cable):
         return OpenFPGALoader(cable=cable)
 
     def do_finalize(self, fragment):
-        LatticePlatform.do_finalize(self, fragment)
+        LatticeECP5Platform.do_finalize(self, fragment)
         self.add_period_constraint(self.lookup_request("clk48", loose=True), 1e9/48e6)

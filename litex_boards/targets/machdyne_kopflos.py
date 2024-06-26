@@ -106,7 +106,7 @@ class BaseSoC(SoCCore):
     mem_map = {**SoCCore.mem_map, **{
         "usb_ohci":     0xc0000000,
     }}
-    def __init__(self, revision="v0", device="12F", sdram_device="MT41K128M16", sdram_rate="1:2", sys_clk_freq=int(50e6), toolchain="trellis", with_led_chaser=True, with_usb_host=False, with_ethernet=False, **kwargs):
+    def __init__(self, revision="v0", device="12F", sdram_device="MT41K128M16", sdram_rate="1:2", sys_clk_freq=int(40e6), toolchain="trellis", with_led_chaser=True, with_usb_host=False, with_ethernet=False, **kwargs):
 
         platform = machdyne_kopflos.Platform(revision=revision, device=device ,toolchain=toolchain)
 
@@ -166,27 +166,18 @@ class BaseSoC(SoCCore):
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on Schoko")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",           action="store_true",  help="Build design.")
-    target_group.add_argument("--load",            action="store_true",  help="Load bitstream to SRAM.")
-    target_group.add_argument("--flash",           action="store_true",  help="Flash bitstream to MMOD.")
-    target_group.add_argument("--toolchain",       default="trellis",    help="FPGA toolchain (trellis or diamond).")
-    target_group.add_argument("--sys-clk-freq",    default=50e6,         help="System clock frequency.")
-    target_group.add_argument("--revision",        default="v0",         help="Board Revision (v0).")
-    target_group.add_argument("--device",          default="12F",        help="ECP5 device (12F, 25F, 45F or 85F).")
-    target_group.add_argument("--cable",           default="usb-blaster", help="Specify an openFPGALoader cable.")
-    target_group.add_argument("--with-sdcard",     action="store_true",  help="Enable SDCard support.")
-    target_group.add_argument("--with-spi-sdcard", action="store_true",  help="Enable SPI-mode SDCard support.")
-    target_group.add_argument("--with-usb-host",   action="store_true",  help="Enable USB host support.")
-    target_group.add_argument("--with-ethernet",   action="store_true",  help="Enable ethernet support.")
-    target_group.add_argument("--boot-from-flash", action="store_true",  help="Boot from flash MMOD.")
-    target_group.add_argument("--sdram-device",    default="MT41K128M16", help="SDRAM device.")
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=machdyne_kopflos.Platform, description="LiteX SoC on Schoko")
+    parser.add_argument("--sys-clk-freq",    default=40e6,         help="System clock frequency.")
+    parser.add_argument("--revision",        default="v0",         help="Board Revision (v0).")
+    parser.add_argument("--device",          default="12F",        help="ECP5 device (12F, 25F, 45F or 85F).")
+    parser.add_argument("--cable",           default="dirtyJtag",  help="Specify an openFPGALoader cable.")
+    parser.add_argument("--with-sdcard",     action="store_true",  help="Enable SDCard support.")
+    parser.add_argument("--with-spi-sdcard", action="store_true",  help="Enable SPI-mode SDCard support.")
+    parser.add_argument("--with-usb-host",   action="store_true",  help="Enable USB host support.")
+    parser.add_argument("--with-ethernet",   action="store_true",  help="Enable ethernet support.")
+    parser.add_argument("--sdram-device",    default="MT41K128M16", help="SDRAM device.")
 
-    builder_args(parser)
-    soc_core_args(parser)
-    trellis_args(parser)
     args = parser.parse_args()
 
     soc = BaseSoC(
@@ -197,7 +188,7 @@ def main():
         sdram_device = args.sdram_device,
         with_usb_host = args.with_usb_host,
         with_ethernet = args.with_ethernet,
-        **soc_core_argdict(args))
+        **parser.soc_argdict)
 
     if args.with_sdcard:
         soc.add_sdcard()
@@ -205,19 +196,13 @@ def main():
     if args.with_spi_sdcard:
         soc.add_spi_sdcard()
 
-    builder = Builder(soc, **builder_argdict(args))
-    builder_kargs = trellis_argdict(args) if args.toolchain == "trellis" else {}
-
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build(**builder_kargs)
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
-        prog = soc.platform.create_programmer(args.cable)
+        prog = soc.platform.create_programmer()
         prog.load_bitstream(builder.get_bitstream_filename(mode="sram"))
-
-    if args.flash:
-        prog = soc.platform.create_programmer(args.cable)
-        prog.flash(0x100000, builder.get_bitstream_filename(mode="sram"))
 
 if __name__ == "__main__":
     main()

@@ -42,14 +42,23 @@ _io = [
 
     # PCIe.
     ("pcie_clkreq_n", 0, Pins("G1"), IOStandard("LVCMOS33")),
-    ("pcie_x4", 0,
+    ("pcie_x1_baseboard", 0,
         Subsignal("rst_n", Pins("J1"), IOStandard("LVCMOS33"), Misc("PULLUP=TRUE")),
+        Subsignal("clk_p", Pins("F6")),
+        Subsignal("clk_n", Pins("E6")),
+        Subsignal("rx_p",  Pins("D9")),
+        Subsignal("rx_n",  Pins("C9")),
+        Subsignal("tx_p",  Pins("D7")),
+        Subsignal("tx_n",  Pins("C7")),
+    ),
+    ("pcie_x4", 0,
+        Subsignal("rst_n", Pins("J1"), IOStandard("LVCMOS15"), Misc("PULLUP=TRUE")),
         Subsignal("clk_p", Pins("F6")),
         Subsignal("clk_n", Pins("E6")),
         Subsignal("rx_p",  Pins("B10 B8 D11 D9")),
         Subsignal("rx_n",  Pins("A10 A8 C11 C9")),
-        Subsignal("tx_p",  Pins("B6 B4 D5 D7")),
-        Subsignal("tx_n",  Pins("A6 A4 C5 C7")),
+        Subsignal("tx_p",  Pins("B6  B4  D5 D7")),
+        Subsignal("tx_n",  Pins("A6  A4  C5 C7")),
     ),
 
     # DDR3 SDRAM.
@@ -116,6 +125,8 @@ class Platform(Xilinx7SeriesPlatform):
             "cle-215+": "xc7a200t-fbg484-3"
         }[variant]
 
+        self.variant = variant
+
         Xilinx7SeriesPlatform.__init__(self, device, _io, toolchain=toolchain)
         self.add_extension(_serial_io)
         self.add_extension(_sdcard_io)
@@ -146,8 +157,13 @@ class Platform(Xilinx7SeriesPlatform):
         ]
 
     def create_programmer(self, name='openocd'):
+        proxy = {
+	    "cle-101":  "bscan_spi_xc7a100t.bit",
+	    "cle-215":  "bscan_spi_xc7a200t.bit",
+            "cle-215+": "bscan_spi_xc7a200t.bit"
+	}[self.variant]
         if name == 'openocd':
-            return OpenOCD("openocd_xc7_ft232.cfg", "bscan_spi_xc7a200t.bit")
+            return OpenOCD("openocd_xc7_ft232.cfg", proxy)
         elif name == 'vivado':
             # TODO: some board versions may have s25fl128s
             return VivadoProgrammer(flash_part='s25fl256sxxxxxx0-spi-x1_x2_x4')
