@@ -11,6 +11,8 @@
 from migen import *
 from migen.genlib.resetsync import AsyncResetSynchronizer
 
+from litex.gen import *
+
 from litex_boards.platforms import efinix_xyloni_dev_kit
 
 from litex.soc.cores.clock import *
@@ -19,14 +21,12 @@ from litex.soc.integration.soc import SoCRegion
 from litex.soc.integration.builder import *
 from litex.soc.cores.led import LedChaser
 
-kB = 1024
-mB = 1024*kB
-
 # CRG ----------------------------------------------------------------------------------------------
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq):
-        self.clock_domains.cd_sys = ClockDomain()
+        self.rst    = Signal()
+        self.cd_sys = ClockDomain()
 
         # # #
 
@@ -34,19 +34,19 @@ class _CRG(Module):
         rst_n = platform.request("user_btn", 0)
 
         # PLL.
-        self.submodules.pll = pll = TRIONPLL(platform)
-        self.comb += pll.reset.eq(~rst_n)
+        self.pll = pll = TRIONPLL(platform)
+        self.comb += pll.reset.eq(~rst_n | self.rst)
         pll.register_clkin(clk33, 33.333e6)
         pll.create_clkout(self.cd_sys, sys_clk_freq, with_reset=True)
 
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, bios_flash_offset, sys_clk_freq, with_led_chaser=True, **kwargs):
+    def __init__(self, bios_flash_offset, sys_clk_freq=33.333e6, with_led_chaser=True, **kwargs):
         platform = efinix_xyloni_dev_kit.Platform()
 
         # CRG --------------------------------------------------------------------------------------
-        self.submodules.crg = _CRG(platform, sys_clk_freq)
+        self.crg = _CRG(platform, sys_clk_freq)
 
         # SoCCore ----------------------------------------------------------------------------------
         # Disable Integrated ROM.
@@ -64,14 +64,14 @@ class BaseSoC(SoCCore):
         # Add ROM linker region --------------------------------------------------------------------
         self.bus.add_region("rom", SoCRegion(
             origin = self.bus.regions["spiflash"].origin + bios_flash_offset,
-            size   = 32*kB,
+            size   = 32 * KILOBYTE,
             linker = True)
         )
         self.cpu.set_reset_address(self.bus.regions["rom"].origin)
 
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
-            self.submodules.leds = LedChaser(
+            self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
                 sys_clk_freq = sys_clk_freq)
 
@@ -79,26 +79,21 @@ class BaseSoC(SoCCore):
 
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on Efinix Xyloni Dev Kit")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build", action="store_true",           help="Build design.")
-    target_group.add_argument("--load",  action="store_true",           help="Load bitstream.")
-    target_group.add_argument("--flash", action="store_true",           help="Flash Bitstream.")
-    target_group.add_argument("--sys-clk-freq",      default=33.333e6,  help="System clock frequency.")
-    target_group.add_argument("--bios-flash-offset", default="0x40000", help="BIOS offset in SPI Flash.")
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=efinix_xyloni_dev_kit.Platform, description="LiteX SoC on Efinix Xyloni Dev Kit.")
+    parser.add_target_argument("--flash", action="store_true",                      help="Flash Bitstream.")
+    parser.add_target_argument("--sys-clk-freq",      default=33.333e6, type=float, help="System clock frequency.")
+    parser.add_target_argument("--bios-flash-offset", default="0x40000",            help="BIOS offset in SPI Flash.")
 
-    builder_args(parser)
-    soc_core_args(parser)
     args = parser.parse_args()
 
     soc = BaseSoC(
         bios_flash_offset = int(args.bios_flash_offset, 0),
-        sys_clk_freq      = int(float(args.sys_clk_freq)),
-        **soc_core_argdict(args))
-    builder = Builder(soc, **builder_argdict(args))
+        sys_clk_freq      = args.sys_clk_freq,
+        **parser.soc_argdict)
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build()
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()

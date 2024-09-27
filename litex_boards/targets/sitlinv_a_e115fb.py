@@ -9,7 +9,9 @@
 from migen import *
 from migen.genlib.resetsync import AsyncResetSynchronizer
 
-from litex_boards.platforms import taobao_a_e115fb
+from litex.gen import *
+
+from litex_boards.platforms import sitlinv_a_e115fb
 
 from litex.soc.integration.soc_core import *
 from litex.soc.integration.builder import *
@@ -18,10 +20,10 @@ from litex.soc.cores.led import LedChaser
 
 # CRG ----------------------------------------------------------------------------------------------
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq):
-        self.rst = Signal()
-        self.clock_domains.cd_sys = ClockDomain()
+        self.rst    = Signal()
+        self.cd_sys = ClockDomain()
 
         # # #
 
@@ -30,7 +32,7 @@ class _CRG(Module):
         rst_n = platform.request("cpu_reset_n")
 
         # PLL
-        self.submodules.pll = pll = CycloneIVPLL(speedgrade="-7")
+        self.pll = pll = CycloneIVPLL(speedgrade="-7")
         self.comb += pll.reset.eq(~rst_n | self.rst)
         pll.register_clkin(clk25, 25e6)
         pll.create_clkout(self.cd_sys, sys_clk_freq)
@@ -38,11 +40,11 @@ class _CRG(Module):
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, sys_clk_freq=int(50e6), with_led_chaser=True, **kwargs):
-        platform = taobao_a_e115fb.Platform()
+    def __init__(self, sys_clk_freq=50e6, with_led_chaser=True, **kwargs):
+        platform = sitlinv_a_e115fb.Platform()
 
         # CRG --------------------------------------------------------------------------------------
-        self.submodules.crg = _CRG(platform, sys_clk_freq)
+        self.crg = _CRG(platform, sys_clk_freq)
 
         # SoCCore ----------------------------------------------------------------------------------
         SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX SoC on A-E115FB", **kwargs)
@@ -50,28 +52,23 @@ class BaseSoC(SoCCore):
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
             ledn = platform.request_all("user_led_n")
-            self.submodules.leds = LedChaser(pads=ledn, sys_clk_freq=sys_clk_freq)
+            self.leds = LedChaser(pads=ledn, sys_clk_freq=sys_clk_freq)
 
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on A-E115FB")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",        action="store_true", help="Build design.")
-    target_group.add_argument("--load",         action="store_true", help="Load bitstream.")
-    target_group.add_argument("--sys-clk-freq", default=50e6,        help="System clock frequency.")
-    builder_args(parser)
-    soc_core_args(parser)
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=sitlinv_a_e115fb.Platform, description="LiteX SoC on A-E115FB.")
+    parser.add_target_argument("--sys-clk-freq", default=50e6, type=float, help="System clock frequency.")
     args = parser.parse_args()
 
     soc = BaseSoC(
-        sys_clk_freq = int(float(args.sys_clk_freq)),
-        **soc_core_argdict(args)
+        sys_clk_freq = args.sys_clk_freq,
+        **parser.soc_argdict
     )
-    builder = Builder(soc, **builder_argdict(args))
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build()
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()

@@ -11,9 +11,10 @@
 from migen import *
 from migen.genlib.resetsync import AsyncResetSynchronizer
 
+from litex.gen import *
+
 from litex_boards.platforms import muselab_icesugar
 
-from litex.build.lattice.icestorm import icestorm_args, icestorm_argdict
 from litex.soc.cores.ram import Up5kSPRAM
 from litex.soc.cores.clock import iCE40PLL
 from litex.soc.integration.soc_core import *
@@ -21,16 +22,13 @@ from litex.soc.integration.soc import SoCRegion
 from litex.soc.integration.builder import *
 from litex.soc.cores.led import LedChaser
 
-kB = 1024
-mB = 1024*kB
-
 # CRG ----------------------------------------------------------------------------------------------
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq):
-        self.rst = Signal()
-        self.clock_domains.cd_sys = ClockDomain()
-        self.clock_domains.cd_por = ClockDomain()
+        self.rst    = Signal()
+        self.cd_sys = ClockDomain()
+        self.cd_por = ClockDomain()
 
         # # #
 
@@ -45,7 +43,7 @@ class _CRG(Module):
         self.sync.por += If(~por_done, por_count.eq(por_count - 1))
 
         # PLL
-        self.submodules.pll = pll = iCE40PLL(primitive="SB_PLL40_PAD")
+        self.pll = pll = iCE40PLL(primitive="SB_PLL40_PAD")
         self.comb += pll.reset.eq(self.rst)
         pll.register_clkin(clk12, 12e6)
         pll.create_clkout(self.cd_sys, sys_clk_freq, with_reset=False)
@@ -55,12 +53,14 @@ class _CRG(Module):
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, bios_flash_offset, sys_clk_freq=int(24e6), with_led_chaser=True,
-                 with_video_terminal=False, **kwargs):
+    def __init__(self, bios_flash_offset, sys_clk_freq=24e6,
+        with_led_chaser     = True,
+        with_video_terminal = False,
+        **kwargs):
         platform = muselab_icesugar.Platform()
 
         # CRG --------------------------------------------------------------------------------------
-        self.submodules.crg = _CRG(platform, sys_clk_freq)
+        self.crg = _CRG(platform, sys_clk_freq)
 
         # SoCCore ----------------------------------------------------------------------------------
         # Disable Integrated ROM/SRAM since too large for iCE40 and UP5K has specific SPRAM.
@@ -72,8 +72,8 @@ class BaseSoC(SoCCore):
         SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX SoC on Muselab iCESugar", **kwargs)
 
         # 128KB SPRAM (used as SRAM) ---------------------------------------------------------------
-        self.submodules.spram = Up5kSPRAM(size=64*kB)
-        self.bus.add_slave("sram", self.spram.bus, SoCRegion(size=64*kB))
+        self.spram = Up5kSPRAM(size=64 * KILOBYTE)
+        self.bus.add_slave("sram", self.spram.bus, SoCRegion(size=64 * KILOBYTE))
 
         # SPI Flash --------------------------------------------------------------------------------
         from litespi.modules import W25Q64FV
@@ -83,7 +83,7 @@ class BaseSoC(SoCCore):
         # Add ROM linker region --------------------------------------------------------------------
         self.bus.add_region("rom", SoCRegion(
             origin = self.bus.regions["spiflash"].origin + bios_flash_offset,
-            size   = 32*kB,
+            size   = 32 * KILOBYTE,
             linker = True)
         )
         self.cpu.set_reset_address(self.bus.regions["rom"].origin)
@@ -91,7 +91,7 @@ class BaseSoC(SoCCore):
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
             led_pads = platform.request_all("user_led_n")
-            self.submodules.leds = LedChaser(
+            self.leds = LedChaser(
                 pads         = led_pads,
                 sys_clk_freq = sys_clk_freq)
 
@@ -106,27 +106,21 @@ def flash(bios_flash_offset):
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on iCEBreaker")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",               action="store_true", help="Build design.")
-    target_group.add_argument("--load",                action="store_true", help="Load bitstream.")
-    target_group.add_argument("--flash",               action="store_true", help="Flash Bitstream.")
-    target_group.add_argument("--sys-clk-freq",        default=24e6,        help="System clock frequency.")
-    target_group.add_argument("--bios-flash-offset",   default="0x40000",   help="BIOS offset in SPI Flash.")
-    builder_args(parser)
-    soc_core_args(parser)
-    icestorm_args(parser)
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=muselab_icesugar.Platform, description="LiteX SoC on iCEBreaker.")
+    parser.add_target_argument("--flash",             action="store_true",       help="Flash Bitstream.")
+    parser.add_target_argument("--sys-clk-freq",      default=24e6,  type=float, help="System clock frequency.")
+    parser.add_target_argument("--bios-flash-offset", default="0x40000",         help="BIOS offset in SPI Flash.")
     args = parser.parse_args()
 
     soc = BaseSoC(
-        bios_flash_offset   = int(args.bios_flash_offset, 0),
-        sys_clk_freq        = int(float(args.sys_clk_freq)),
-        **soc_core_argdict(args)
+        bios_flash_offset = int(args.bios_flash_offset, 0),
+        sys_clk_freq      = args.sys_clk_freq,
+        **parser.soc_argdict
     )
-    builder = Builder(soc, **builder_argdict(args))
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build(**icestorm_argdict(args))
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()

@@ -6,8 +6,10 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 from litex.build.generic_platform import *
-from litex.build.lattice import LatticePlatform
+from litex.build.lattice import LatticeNexusPlatform
 from litex.build.lattice.programmer import LatticeProgrammer
+from litex.build.lattice.programmer import EcpprogProgrammer
+from litex.build.lattice.programmer import OpenOCDJTAGProgrammer
 
 # IOs ----------------------------------------------------------------------------------------------
 
@@ -245,7 +247,7 @@ serial_pmods = [
 
 # Platform -----------------------------------------------------------------------------------------
 
-class Platform(LatticePlatform):
+class Platform(LatticeNexusPlatform):
     default_clk_name   = "clk12"
     default_clk_period = 1e9/12e6
 
@@ -256,10 +258,27 @@ class Platform(LatticePlatform):
         if device == "LIFCL":
             device == "LIFCL-40-9BG400C"
         assert device in ["LIFCL-40-9BG400C", "LIFCL-40-8BG400CES"]
-        LatticePlatform.__init__(self, device, _io, _connectors, toolchain=toolchain, **kwargs)
+        LatticeNexusPlatform.__init__(self, device, _io, _connectors, toolchain=toolchain, **kwargs)
 
-    def create_programmer(self, mode = "direct"):
+    def request(self, *args, **kwargs):
+        import time
+        if "serial" in args:
+            msg =  "FT2232H will be used as serial, make sure that:\n"
+            msg += " -the hardware has been modified: R18 and R19 should be removed, two 0 Ω resistors shoud be populated on R15 (and not R16) and R17.\n"
+            msg += " -the chip is configured as UART with virtual COM on port B (With FTProg or https://github.com/trabucayre/fixFT2232_ecp5evn)."
+            print(msg)
+            time.sleep(2)
+        return LatticeNexusPlatform.request(self, *args, **kwargs)
+
+    def create_programmer(self, mode = "direct", prog="radiant"):
         assert mode in ["direct","flash"]
+        assert prog in ["radiant","ecpprog","openocd"]
+
+        if prog == "ecpprog":
+            return EcpprogProgrammer()
+
+        if prog == "openocd":
+            return OpenOCDJTAGProgrammer("openocd_evn_nx.cfg")
 
         xcf_template_direct = """<?xml version='1.0' encoding='utf-8' ?>
 <!DOCTYPE		ispXCF	SYSTEM	"IspXCF.dtd" >

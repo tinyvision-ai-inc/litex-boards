@@ -7,7 +7,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 from litex.build.generic_platform import *
-from litex.build.xilinx import XilinxPlatform
+from litex.build.xilinx import Xilinx7SeriesPlatform
 from litex.build.openocd import OpenOCD
 
 # IOs ----------------------------------------------------------------------------------------------
@@ -62,9 +62,10 @@ _io = [
 
     # I2C
     ("i2c", 0,
-        Subsignal("scl", Pins("K21")),
-        Subsignal("sda", Pins("L21")),
-        IOStandard("LVCMOS25")),
+        Subsignal("scl", Pins("K21"), Misc("PULLUP=True")),
+        Subsignal("sda", Pins("L21"), Misc("PULLUP=True")),
+        IOStandard("LVCMOS25")
+    ),
 
     # Serial
     ("serial", 0,
@@ -94,10 +95,10 @@ _io = [
             "AB19 AD16 AC19 AD17 AA18 AB18 AE18 AD18",
             "AG19 AK19 AG18 AF18 AH19 AJ19 AE19 AD19",
             "AK16 AJ17 AG15 AF15 AH17 AG14 AH15 AK15",
-            "AK8 AK6 AG7 AF7 AF8 AK4 AJ8 AJ6",
-            "AH5 AH6 AJ2 AH2 AH4 AJ4 AK1 AJ1",
-            "AF1 AF2 AE4 AE3 AF3 AF5 AE1 AE5",
-            "AC1 AD3 AC4 AC5 AE6 AD6 AC2 AD4"),
+            " AK8  AK6  AG7  AF7  AF8  AK4  AJ8  AJ6",
+            " AH5  AH6  AJ2  AH2  AH4  AJ4  AK1  AJ1",
+            " AF1  AF2  AE4  AE3  AF3  AF5  AE1  AE5",
+            " AC1  AD3  AC4  AC5  AE6  AD6  AC2  AD4"),
             IOStandard("SSTL15_T_DCI")),
         Subsignal("dqs_p",   Pins("AC16 Y19 AJ18 AH16 AH7 AG2 AG4 AD2"),
             IOStandard("DIFF_SSTL15")),
@@ -540,12 +541,12 @@ _connectors = [
 
 # Platform -----------------------------------------------------------------------------------------
 
-class Platform(XilinxPlatform):
+class Platform(Xilinx7SeriesPlatform):
     default_clk_name   = "clk156"
     default_clk_period = 1e9/156.5e6
 
     def __init__(self, toolchain="vivado"):
-        XilinxPlatform.__init__(self, "xc7k325t-ffg900-2", _io, _connectors, toolchain=toolchain)
+        Xilinx7SeriesPlatform.__init__(self, "xc7k325t-ffg900-2", _io, _connectors, toolchain=toolchain)
         self.add_platform_command("""
 set_property CFGBVS VCCO [current_design]
 set_property CONFIG_VOLTAGE 2.5 [current_design]
@@ -554,10 +555,10 @@ set_property CONFIG_VOLTAGE 2.5 [current_design]
         self.toolchain.additional_commands = ["write_cfgmem -force -format bin -interface spix4 -size 16 -loadbit \"up 0x0 {build_name}.bit\" -file {build_name}.bin"]
 
     def create_programmer(self):
-        return OpenOCD("openocd_xc7_ft2232.cfg", "bscan_spi_xc7a325t.bit")
+        return OpenOCD("openocd_xc7_ft2232.cfg", "bscan_spi_xc7k325t.bit")
 
     def do_finalize(self, fragment):
-        XilinxPlatform.do_finalize(self, fragment)
+        Xilinx7SeriesPlatform.do_finalize(self, fragment)
         self.add_period_constraint(self.lookup_request("clk200",        loose=True), 1e9/200e6)
         self.add_period_constraint(self.lookup_request("eth_clocks:rx", loose=True), 1e9/125e6)
         self.add_period_constraint(self.lookup_request("eth_clocks:tx", loose=True), 1e9/125e6)

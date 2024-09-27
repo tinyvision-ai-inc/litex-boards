@@ -20,9 +20,10 @@ import os
 
 from migen import *
 
+from litex.gen import *
+
 from litex_boards.platforms import alinx_axu2cga
 
-from litex.build.xilinx.vivado import vivado_build_args, vivado_build_argdict
 from litex.build.tools import write_to_file
 
 from litex.soc.interconnect import axi
@@ -37,10 +38,10 @@ from litex.soc.cores.led import LedChaser
 # CRG ----------------------------------------------------------------------------------------------
 
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq, use_psu_clk=False):
-        self.rst = Signal()
-        self.clock_domains.cd_sys = ClockDomain()
+        self.rst    = Signal()
+        self.cd_sys = ClockDomain()
 
         # # #
 
@@ -54,7 +55,7 @@ class _CRG(Module):
             clk25 = platform.request("clk25")
 
             # PLL
-            self.submodules.pll = pll = USMMCM(speedgrade=-1)
+            self.pll = pll = USMMCM(speedgrade=-1)
             self.comb += pll.reset.eq(self.rst)
             pll.register_clkin(clk25, 25e6)
             pll.create_clkout(self.cd_sys, sys_clk_freq)
@@ -65,33 +66,22 @@ class _CRG(Module):
 
 
 class BaseSoC(SoCCore):
-    def __init__(self, sys_clk_freq=int(25e6), with_led_chaser=True, **kwargs):
+    def __init__(self, sys_clk_freq=25e6, with_led_chaser=True, **kwargs):
         platform = alinx_axu2cga.Platform()
 
         # CRG --------------------------------------------------------------------------------------
         use_psu_clk = (kwargs.get("cpu_type", None) == "zynqmp")
-        self.submodules.crg = _CRG(platform, sys_clk_freq, use_psu_clk)
+        self.crg = _CRG(platform, sys_clk_freq, use_psu_clk)
 
         # SoCCore ----------------------------------------------------------------------------------
         if kwargs.get("cpu_type", None) == "zynqmp":
             kwargs["integrated_sram_size"] = 0
             kwargs["with_uart"] = False
-            self.mem_map = {
-                "csr": 0x8000_0000, # Zynq GP0 default
-            }
         SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX SoC on Alinx AXU2CGA", **kwargs)
 
         # ZynqMP Integration ---------------------------------------------------------------------
         if kwargs.get("cpu_type", None) == "zynqmp":
             self.cpu.config.update(platform.psu_config)
-
-            # Connect AXI HPM0 LPD to the SoC
-            wb_lpd = wishbone.Interface()
-            self.submodules += axi.AXI2Wishbone(
-                axi          = self.cpu.add_axi_gp_master(2, 32),
-                wishbone     = wb_lpd,
-                base_address = self.mem_map["csr"])
-            self.bus.add_master(master=wb_lpd)
 
             self.bus.add_region("sram", SoCRegion(
                 origin = self.cpu.mem_map["sram"],
@@ -106,7 +96,7 @@ class BaseSoC(SoCCore):
 
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
-            self.submodules.leds = LedChaser(
+            self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
                 sys_clk_freq = sys_clk_freq)
 
@@ -171,30 +161,24 @@ class BaseSoC(SoCCore):
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on Alinx AXU2CGA")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",        action="store_true", help="Build design.")
-    target_group.add_argument("--load",         action="store_true", help="Load bitstream.")
-    target_group.add_argument("--cable",        default="ft232",     help="JTAG interface.")
-    target_group.add_argument("--sys-clk-freq", default=25e6,        help="System clock frequency.")
-    builder_args(parser)
-    soc_core_args(parser)
-    vivado_build_args(parser)
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=alinx_axu2cga.Platform, description="LiteX SoC on Alinx AXU2CGA.")
+    parser.add_target_argument("--cable",        default="ft232",          help="JTAG interface.")
+    parser.add_target_argument("--sys-clk-freq", default=25e6, type=float, help="System clock frequency.")
     parser.set_defaults(cpu_type="zynqmp")
     args = parser.parse_args()
 
     soc = BaseSoC(
-        sys_clk_freq=int(float(args.sys_clk_freq)),
-        **soc_core_argdict(args)
+        sys_clk_freq=args.sys_clk_freq,
+        **parser.soc_argdict
     )
-    builder = Builder(soc, **builder_argdict(args))
+    builder = Builder(soc, **parser.builder_argdict)
     if args.cpu_type == "zynqmp":
         soc.builder = builder
         builder.add_software_package('libxil')
         builder.add_software_library('libxil')
     if args.build:
-        builder.build(**vivado_build_argdict(args))
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer(args.cable)

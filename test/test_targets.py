@@ -16,7 +16,10 @@ from litex.soc.integration.builder import *
 class TestTargets(unittest.TestCase):
     excluded_platforms = [
         "qmtech_daughterboard",              # Reason: Not a real platform.
+        "qmtech_rp2040_daughterboard",       # Reason: Not a real platform.
+        "enclustra_st1",                     # Readon: Not a real platform.
         "quicklogic_quickfeather",           # Reason: No default clock.
+        "colognechip_gatemate_evb",          # Reason: toolchain not yet mainlined
         "efinix_titanium_ti60_f225_dev_kit", # Reason: Require Efinity toolchain.
         "efinix_trion_t120_bga576_dev_kit",  # Reason: Require Efinity toolchain.
         "efinix_trion_t20_bga256_dev_kit",   # Reason: Require Efinity toolchain.
@@ -26,10 +29,12 @@ class TestTargets(unittest.TestCase):
         "jungle_electronics_fireant",        # Reason: Require Efinity toolchain.
         "efinix_t8f81_dev_kit",              # Reason: Require Efinity toolchain.
         "adi_plutosdr",                      # Reason: No default clock.
+        "newae_cw305",                       # Reason: No default clock.
     ]
     excluded_targets   = [
         "simple",                            # Reason: Generic target.
         "quicklogic_quickfeather",           # Reason: No default clock.
+        "colognechip_gatemate_evb",          # Reason: toolchain not yet mainlined
         "efinix_titanium_ti60_f225_dev_kit", # Reason: Require Efinity toolchain.
         "efinix_trion_t120_bga576_dev_kit",  # Reason: Require Efinity toolchain.
         "efinix_trion_t20_bga256_dev_kit",   # Reason: Require Efinity toolchain.

@@ -11,7 +11,7 @@
 from migen import *
 from migen.genlib.resetsync import AsyncResetSynchronizer
 
-from litex.build.lattice.trellis import trellis_args, trellis_argdict
+from litex.gen import *
 
 from litex_boards.platforms import rcs_arctic_tern_bmc_card
 
@@ -27,16 +27,16 @@ from litex.soc.cores.video import VideoGenericPHY
 
 # CRG ----------------------------------------------------------------------------------------------
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq):
-        self.rst = Signal()
-        self.clock_domains.cd_init     = ClockDomain()
-        self.clock_domains.cd_por      = ClockDomain()
-        self.clock_domains.cd_sys      = ClockDomain()
-        self.clock_domains.cd_sys2x    = ClockDomain()
-        self.clock_domains.cd_sys2x_i  = ClockDomain()
-        self.clock_domains.cd_sys2x_eb = ClockDomain()
-        self.clock_domains.cd_dvo      = ClockDomain()
+        self.rst         = Signal()
+        self.cd_init     = ClockDomain()
+        self.cd_por      = ClockDomain()
+        self.cd_sys      = ClockDomain()
+        self.cd_sys2x    = ClockDomain()
+        self.cd_sys2x_i  = ClockDomain()
+        self.cd_sys2x_eb = ClockDomain()
+        self.cd_dvo      = ClockDomain()
 
         # # #
         self.stop  = Signal()
@@ -58,7 +58,7 @@ class _CRG(Module):
 
         # PLL
         sys2x_clk_ecsout = Signal()
-        self.submodules.pll = pll = ECP5PLL()
+        self.pll = pll = ECP5PLL()
         self.comb += pll.reset.eq(~por_done | ~rst_n | self.rst)
         pll.register_clkin(clk125, 125e6)
         pll.create_clkout(self.cd_sys2x_i, 2*sys_clk_freq)
@@ -93,7 +93,7 @@ class _CRG(Module):
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, sys_clk_freq=int(50e6), toolchain="trellis",
+    def __init__(self, sys_clk_freq=50e6, toolchain="trellis",
         with_video_colorbars   = False,
         with_video_terminal    = True,
         with_video_framebuffer = False,
@@ -104,7 +104,7 @@ class BaseSoC(SoCCore):
         platform = rcs_arctic_tern_bmc_card.Platform(toolchain=toolchain)
 
         # CRG --------------------------------------------------------------------------------------
-        self.submodules.crg = _CRG(platform, sys_clk_freq)
+        self.crg = _CRG(platform, sys_clk_freq)
 
         # SoCCore ----------------------------------------------------------------------------------
         SoCCore.__init__(self, platform, irq_n_irqs=16, clk_freq=sys_clk_freq,
@@ -113,7 +113,7 @@ class BaseSoC(SoCCore):
         )
 
         # DDR3 SDRAM -------------------------------------------------------------------------------
-        self.submodules.ddrphy = ECP5DDRPHY(
+        self.ddrphy = ECP5DDRPHY(
             platform.request("ddram"),
             sys_clk_freq=sys_clk_freq)
         self.comb += self.crg.stop.eq(self.ddrphy.init.stop)
@@ -126,7 +126,7 @@ class BaseSoC(SoCCore):
 
         # Ethernet / Etherbone ---------------------------------------------------------------------
         if with_ethernet or with_etherbone:
-            self.submodules.ethphy = LiteEthPHYRGMII(
+            self.ethphy = LiteEthPHYRGMII(
                 clock_pads = self.platform.request("eth_clocks", 0),
                 pads       = self.platform.request("eth", 0),
                 tx_delay   = 0e-9,
@@ -139,7 +139,7 @@ class BaseSoC(SoCCore):
         # Video Output -----------------------------------------------------------------------------
         if with_video_colorbars or with_video_terminal or with_video_framebuffer:
             dvo_pads = platform.request("dvo")
-            self.submodules.videophy = VideoGenericPHY(dvo_pads, clock_domain="dvo", with_clk_ddr_output=False)
+            self.videophy = VideoGenericPHY(dvo_pads, clock_domain="dvo", with_clk_ddr_output=False)
             if with_video_terminal:
                 #self.add_video_terminal(phy=self.videophy, timings="1920x1080@60Hz", clock_domain="dvo")
                 #self.add_video_terminal(phy=self.videophy, timings="1920x1200@60Hz", clock_domain="dvo")
@@ -154,33 +154,25 @@ class BaseSoC(SoCCore):
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on Arctic Tern (BMC card carrier)")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",        action="store_true", help="Build design")
-    target_group.add_argument("--load",         action="store_true", help="Load bitstream")
-    target_group.add_argument("--toolchain",    default="trellis",   help="FPGA toolchain: trellis (default) or diamond")
-    target_group.add_argument("--sys-clk-freq", default=60e6,        help="System clock frequency (default: 60MHz)")
-    ethopts = target_group.add_mutually_exclusive_group()
-    ethopts.add_argument("--with-ethernet",  action="store_true",              help="Enable Ethernet support.")
-    ethopts.add_argument("--with-etherbone", action="store_true",              help="Enable Etherbone support.")
-    target_group.add_argument("--eth-ip",          default="192.168.1.50", type=str, help="Ethernet/Etherbone IP address.")
-    builder_args(parser)
-    soc_core_args(parser)
-    trellis_args(parser)
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=rcs_arctic_tern_bmc_card.Platform, description="LiteX SoC on Arctic Tern (BMC card carrier).")
+    parser.add_target_argument("--sys-clk-freq", default=60e6, type=float, help="System clock frequency (default: 60MHz).")
+    ethopts = parser.target_group.add_mutually_exclusive_group()
+    ethopts.add_argument("--with-ethernet",  action="store_true",    help="Enable Ethernet support.")
+    ethopts.add_argument("--with-etherbone", action="store_true",    help="Enable Etherbone support.")
+    parser.add_target_argument("--eth-ip",   default="192.168.1.50", help="Ethernet/Etherbone IP address.")
     args = parser.parse_args()
 
     soc = BaseSoC(
-        toolchain    = args.toolchain,
-        sys_clk_freq = int(float(args.sys_clk_freq)),
+        toolchain      = args.toolchain,
+        sys_clk_freq   = args.sys_clk_freq,
         with_ethernet  = args.with_ethernet,
         with_etherbone = args.with_etherbone,
         eth_ip         = args.eth_ip,
-        **soc_core_argdict(args))
-    builder = Builder(soc, **builder_argdict(args))
-    builder_kargs = trellis_argdict(args) if args.toolchain == "trellis" else {}
+        **parser.soc_argdict)
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build(**builder_kargs)
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()

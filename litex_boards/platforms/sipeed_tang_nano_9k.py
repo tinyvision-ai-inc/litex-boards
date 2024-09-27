@@ -63,24 +63,33 @@ _io = [
 
     # HDMI.
     ("hdmi", 0,
-        Subsignal("clk_p",   Pins("69"), IOStandard("LVCMOS33")),
+        Subsignal("clk_p",   Pins("69")),
         Subsignal("clk_n",   Pins("68")),
-        Subsignal("data0_p", Pins("71"), IOStandard("LVCMOS33")),
+        Subsignal("data0_p", Pins("71")),
         Subsignal("data0_n", Pins("70")),
-        Subsignal("data1_p", Pins("73"), IOStandard("LVCMOS33")),
+        Subsignal("data1_p", Pins("73")),
         Subsignal("data1_n", Pins("72")),
-        Subsignal("data2_p", Pins("75"), IOStandard("LVCMOS33")),
+        Subsignal("data2_p", Pins("75")),
         Subsignal("data2_n", Pins("74")),
         Misc("PULL_MODE=NONE"),
     ),
 
-    # TODO: SPI/RGB LCD
+    # SPI RGB LCD.
+    ("spilcd", 0,
+        Subsignal("reset", Pins("47")),
+        Subsignal("cs",    Pins("48")),
+        Subsignal("clk",   Pins("79")),
+        Subsignal("mosi",  Pins("77")),
+        Subsignal("rs",    Pins("47")),
+        IOStandard("LVCMOS33"),
+    ),
 ]
 
 # Connectors ---------------------------------------------------------------------------------------
 
 _connectors = [
-        # TODO
+    ["J6", "38 37 36 39 25 26 27 28 29 30 33 34 40 35 41 42 51 53 54 55 56 57 68 69"],
+    ["J7", "63 86 85 84 83 82 81 80 79 77 76 75 74 73 72 71 70  - 48 49 31 32  -  -"],
 ]
 
 # Platform -----------------------------------------------------------------------------------------

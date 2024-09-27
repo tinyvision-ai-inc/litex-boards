@@ -12,6 +12,8 @@
 from migen import *
 from migen.genlib.resetsync import AsyncResetSynchronizer
 
+from litex.gen import *
+
 from litex_boards.platforms import jungle_electronics_fireant
 
 from litex.build.generic_platform import *
@@ -23,14 +25,12 @@ from litex.soc.integration.soc import SoCRegion
 from litex.soc.integration.builder import *
 from litex.soc.cores.led import LedChaser
 
-kB = 1024
-mB = 1024*kB
-
 # CRG ----------------------------------------------------------------------------------------------
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq):
-        self.clock_domains.cd_sys = ClockDomain()
+        self.rst    = Signal()
+        self.cd_sys = ClockDomain()
 
         # # #
 
@@ -38,8 +38,8 @@ class _CRG(Module):
         rst_n = platform.request("user_btn", 0)
 
         # PLL.
-        self.submodules.pll = pll = TRIONPLL(platform)
-        self.comb += pll.reset.eq(~rst_n)
+        self.pll = pll = TRIONPLL(platform)
+        self.comb += pll.reset.eq(~rst_n | self.rst)
         pll.register_clkin(clk33, 33.333e6)
         pll.create_clkout(self.cd_sys, sys_clk_freq, with_reset=True)
 
@@ -55,13 +55,12 @@ serial = [
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    mem_map = {**SoCCore.mem_map, **{"spiflash": 0x80000000}}
-    def __init__(self, bios_flash_offset, sys_clk_freq, with_led_chaser=True, **kwargs):
+    def __init__(self, bios_flash_offset, sys_clk_freq=33.333e6, with_led_chaser=True, **kwargs):
         platform = jungle_electronics_fireant.Platform()
         platform.add_extension(serial)
 
         # CRG --------------------------------------------------------------------------------------
-        self.submodules.crg = _CRG(platform, sys_clk_freq)
+        self.crg = _CRG(platform, sys_clk_freq)
 
         # SoCCore ----------------------------------------------------------------------------------
         # Disable Integrated ROM since too large for this device.
@@ -69,25 +68,25 @@ class BaseSoC(SoCCore):
         # Set CPU variant / reset address
         if kwargs.get("cpu_type", "vexriscv") == "vexriscv":
             kwargs["cpu_variant"] = "minimal"
-        kwargs["cpu_reset_address"] = self.mem_map["spiflash"] + bios_flash_offset
         SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX SoC on Jungle Electronics FireAnt", **kwargs)
 
         # SPI Flash --------------------------------------------------------------------------------
         from litespi.modules import W25Q80BV
         from litespi.opcodes import SpiNorFlashOpCodes as Codes
         # Board is using W25Q80DV, which is replacemenet for W25Q80BV
-        self.add_spi_flash(mode="1x", module=W25Q80BV(Codes.READ_1_1_1), with_master=False)
+        self.add_spi_flash(name="spiflash", mode="1x", module=W25Q80BV(Codes.READ_1_1_1), with_master=False)
 
         # Add ROM linker region --------------------------------------------------------------------
         self.bus.add_region("rom", SoCRegion(
-            origin = self.mem_map["spiflash"] + bios_flash_offset,
-            size   = 32*kB,
+            origin = self.bus.regions["spiflash"].origin + bios_flash_offset,
+            size   = 32 * KILOBYTE,
             linker = True)
         )
+        self.cpu.set_reset_address(self.bus.regions["rom"].origin)
 
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
-            self.submodules.leds = LedChaser(
+            self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
                 sys_clk_freq = sys_clk_freq)
 
@@ -95,26 +94,20 @@ class BaseSoC(SoCCore):
 
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on Jungle Electronics FireAnt")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build", action="store_true",           help="Build design.")
-    target_group.add_argument("--load",  action="store_true",           help="Load bitstream.")
-    target_group.add_argument("--flash", action="store_true",           help="Flash Bitstream.")
-    target_group.add_argument("--sys-clk-freq",      default=33.333e6,  help="System clock frequency.")
-    target_group.add_argument("--bios-flash-offset", default="0x40000", help="BIOS offset in SPI Flash.")
-
-    builder_args(parser)
-    soc_core_args(parser)
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=jungle_electronics_fireant.Platform, description="LiteX SoC on Jungle Electronics FireAnt.")
+    parser.add_target_argument("--flash",             action="store_true",          help="Flash Bitstream.")
+    parser.add_target_argument("--sys-clk-freq",      default=33.333e6, type=float, help="System clock frequency.")
+    parser.add_target_argument("--bios-flash-offset", default="0x40000",            help="BIOS offset in SPI Flash.")
     args = parser.parse_args()
 
     soc = BaseSoC(
         bios_flash_offset = int(args.bios_flash_offset, 0),
-        sys_clk_freq      = int(float(args.sys_clk_freq)),
-        **soc_core_argdict(args))
-    builder = Builder(soc, **builder_argdict(args))
+        sys_clk_freq      = args.sys_clk_freq,
+        **parser.soc_argdict)
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build()
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()

@@ -11,8 +11,11 @@
 from migen import *
 from migen.genlib.resetsync import AsyncResetSynchronizer
 
+from litex.gen import *
+
 from litex_boards.platforms import efinix_trion_t20_bga256_dev_kit
 
+from litex.build.io import ClkOutput
 from litex.build.generic_platform import *
 
 from litex.soc.cores.clock import *
@@ -20,34 +23,53 @@ from litex.soc.integration.soc_core import *
 from litex.soc.integration.builder import *
 from litex.soc.cores.led import LedChaser
 
+from litedram.modules import NDS36PT5
+from litedram.phy import GENSDRPHY
+
 # CRG ----------------------------------------------------------------------------------------------
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq):
-        self.clock_domains.cd_sys = ClockDomain()
+        self.rst       = Signal()
+        self.cd_sys    = ClockDomain()
+        self.cd_sys_ps = ClockDomain()
 
         # # #
 
+        # Clk/Rst.
         clk50 = platform.request("clk50")
         rst_n = platform.request("user_btn", 0)
 
-        # PLL
-        self.submodules.pll = pll = TRIONPLL(platform)
-        self.comb += pll.reset.eq(~rst_n)
+        # PLL.
+        self.pll = pll = TRIONPLL(platform)
+        self.comb += pll.reset.eq(~rst_n | self.rst)
         pll.register_clkin(clk50, 50e6)
         pll.create_clkout(self.cd_sys, sys_clk_freq, with_reset=True)
+        pll.create_clkout(self.cd_sys_ps, sys_clk_freq, phase=180, name="sdram_clk")
 
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, sys_clk_freq=int(100e6), with_spi_flash=False, with_led_chaser=True, **kwargs):
+    def __init__(self, sys_clk_freq=100e6, with_spi_flash=False, with_led_chaser=True, **kwargs):
         platform = efinix_trion_t20_bga256_dev_kit.Platform()
 
         # CRG --------------------------------------------------------------------------------------
-        self.submodules.crg = _CRG(platform, sys_clk_freq)
+        self.crg = _CRG(platform, sys_clk_freq)
 
         # SoCCore ----------------------------------------------------------------------------------
         SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX SoC on Efinix Trion T20 BGA256 Dev Kit", **kwargs)
+
+        # SDR SDRAM --------------------------------------------------------------------------------
+        if not self.integrated_main_ram_size and sys_clk_freq <= 50e6 :
+            self.specials += ClkOutput("sdram_clk", platform.request("sdram_clock"))
+
+            self.sdrphy = GENSDRPHY(platform.request("sdram"), sys_clk_freq)
+            self.add_sdram("sdram",
+                phy           = self.sdrphy,
+                module        = NDS36PT5(sys_clk_freq, "1:1"),
+                l2_cache_size = kwargs.get("l2_size", 8192),
+                with_bist     = kwargs.get("with_bist", False)
+            )
 
         # SPI Flash --------------------------------------------------------------------------------
         if with_spi_flash:
@@ -57,32 +79,27 @@ class BaseSoC(SoCCore):
 
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
-            self.submodules.leds = LedChaser(
+            self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
                 sys_clk_freq = sys_clk_freq)
 
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on Efinix Trion T20 BGA256 Dev Kit")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",          action="store_true", help="Build design.")
-    target_group.add_argument("--load",           action="store_true", help="Load bitstream.")
-    target_group.add_argument("--flash",          action="store_true", help="Flash bitstream.")
-    target_group.add_argument("--sys-clk-freq",   default=100e6,        help="System clock frequency.")
-    target_group.add_argument("--with-spi-flash", action="store_true", help="Enable SPI Flash (MMAPed).")
-    builder_args(parser)
-    soc_core_args(parser)
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=efinix_trion_t20_bga256_dev_kit.Platform, description="LiteX SoC on Efinix Trion T20 BGA256 Dev Kit.")
+    parser.add_target_argument("--flash",          action="store_true",             help="Flash bitstream.")
+    parser.add_target_argument("--sys-clk-freq",   default=45e6,        type=float, help="System clock frequency.")
+    parser.add_target_argument("--with-spi-flash", action="store_true",             help="Enable SPI Flash (MMAPed).")
     args = parser.parse_args()
 
-    soc     = BaseSoC(
-        sys_clk_freq   = int(float(args.sys_clk_freq)),
+    soc = BaseSoC(
+        sys_clk_freq   = args.sys_clk_freq,
         with_spi_flash = args.with_spi_flash,
-         **soc_core_argdict(args))
-    builder = Builder(soc, **builder_argdict(args))
+         **parser.soc_argdict)
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build()
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()

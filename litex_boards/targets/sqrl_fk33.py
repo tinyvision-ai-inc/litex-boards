@@ -15,6 +15,8 @@ import os
 
 from migen import *
 
+from litex.gen import *
+
 from litex_boards.platforms import sqrl_fk33
 
 from litex.soc.cores.clock import *
@@ -33,17 +35,17 @@ from litepcie.software import generate_litepcie_software
 
 # CRG ----------------------------------------------------------------------------------------------
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq, with_hbm):
-        self.rst = Signal()
-        self.clock_domains.cd_sys = ClockDomain()
+        self.rst    = Signal()
+        self.cd_sys = ClockDomain()
         if with_hbm:
-            self.clock_domains.cd_hbm_ref = ClockDomain()
-            self.clock_domains.cd_apb     = ClockDomain()
+            self.cd_hbm_ref = ClockDomain()
+            self.cd_apb     = ClockDomain()
 
         # # #
 
-        self.submodules.pll = pll = USPMMCM(speedgrade=-2)
+        self.pll = pll = USPMMCM(speedgrade=-2)
         self.comb += pll.reset.eq(self.rst)
         pll.register_clkin(platform.request("clk200"), 200e6)
         pll.create_clkout(self.cd_sys, sys_clk_freq)
@@ -56,26 +58,29 @@ class _CRG(Module):
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, sys_clk_freq=int(125e6), with_led_chaser=True, with_pcie=False, with_hbm=False, **kwargs):
+    def __init__(self, sys_clk_freq=125e6,
+        with_led_chaser = True,
+        with_pcie       = False,
+        with_hbm        = False,
+        **kwargs):
         platform = sqrl_fk33.Platform()
         if with_hbm:
             assert 225e6 <= sys_clk_freq <= 450e6
 
         # CRG --------------------------------------------------------------------------------------
-        self.submodules.crg = _CRG(platform, sys_clk_freq, with_hbm)
+        self.crg = _CRG(platform, sys_clk_freq, with_hbm)
 
         # SoCCore ----------------------------------------------------------------------------------
         if kwargs.get("uart_name", "serial") == "serial":
             kwargs["uart_name"] = "crossover" # Defaults to Crossover-UART.
+        kwargs["with_jtagbone"]  = True
+        kwargs["jtagbone_chain"] = 2 # Chain 1 already used by HBM2 debug probes.
         SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX SoC on FK33", **kwargs)
-
-        # JTAGBone --------------------------------------------------------------------------------
-        self.add_jtagbone(chain=2) # Chain 1 already used by HBM2 debug probes.
 
         # HBM --------------------------------------------------------------------------------------
         if with_hbm:
             # Add HBM Core.
-            self.submodules.hbm = hbm = ClockDomainsRenamer({"axi": "sys"})(USPHBM2(platform))
+            self.hbm = hbm = ClockDomainsRenamer({"axi": "sys"})(USPHBM2(platform))
 
             # Get HBM .xci.
             os.system("wget https://github.com/litex-hub/litex-boards/files/8178874/hbm_0.xci.txt")
@@ -95,27 +100,27 @@ class BaseSoC(SoCCore):
         if with_pcie:
             assert self.csr_data_width == 32
             # PHY
-            self.submodules.pcie_phy = USPHBMPCIEPHY(platform, platform.request("pcie_x4"),
+            self.pcie_phy = USPHBMPCIEPHY(platform, platform.request("pcie_x4"),
                 data_width = 128,
                 bar0_size  = 0x20000)
 
             # Endpoint
-            self.submodules.pcie_endpoint = LitePCIeEndpoint(self.pcie_phy, max_pending_requests=8)
+            self.pcie_endpoint = LitePCIeEndpoint(self.pcie_phy, max_pending_requests=8)
 
             # Wishbone bridge
-            self.submodules.pcie_bridge = LitePCIeWishboneBridge(self.pcie_endpoint,
+            self.pcie_bridge = LitePCIeWishboneBridge(self.pcie_endpoint,
                 base_address = self.mem_map["csr"])
             self.bus.add_master(master=self.pcie_bridge.wishbone)
 
             # DMA0
-            self.submodules.pcie_dma0 = LitePCIeDMA(self.pcie_phy, self.pcie_endpoint,
+            self.pcie_dma0 = LitePCIeDMA(self.pcie_phy, self.pcie_endpoint,
                 with_buffering = True, buffering_depth=1024,
                 with_loopback  = True)
 
             self.add_constant("DMA_CHANNELS", 1)
 
             # MSI
-            self.submodules.pcie_msi = LitePCIeMSI()
+            self.pcie_msi = LitePCIeMSI()
             self.comb += self.pcie_msi.source.connect(self.pcie_phy.msi)
             self.interrupts = {
                 "PCIE_DMA0_WRITER":    self.pcie_dma0.writer.irq,
@@ -127,35 +132,30 @@ class BaseSoC(SoCCore):
 
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
-            self.submodules.leds = LedChaser(
+            self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
                 sys_clk_freq = sys_clk_freq)
 
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on FK33")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",        action="store_true", help="Build design.")
-    target_group.add_argument("--load",         action="store_true", help="Load bitstream.")
-    target_group.add_argument("--sys-clk-freq", default=125e6,       help="System clock frequency.")
-    target_group.add_argument("--with-pcie",    action="store_true", help="Enable PCIe support.")
-    target_group.add_argument("--with-hbm",     action="store_true", help="Use HBM2.")
-    target_group.add_argument("--driver",       action="store_true", help="Generate PCIe driver.")
-    builder_args(parser)
-    soc_core_args(parser)
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=sqrl_fk33.Platform, description="LiteX SoC on FK33.")
+    parser.add_target_argument("--sys-clk-freq", default=125e6, type=float, help="System clock frequency.")
+    parser.add_target_argument("--with-pcie",    action="store_true",       help="Enable PCIe support.")
+    parser.add_target_argument("--with-hbm",     action="store_true",       help="Use HBM2.")
+    parser.add_target_argument("--driver",       action="store_true",       help="Generate PCIe driver.")
     args = parser.parse_args()
 
     soc = BaseSoC(
-        sys_clk_freq = int(float(args.sys_clk_freq)),
+        sys_clk_freq = args.sys_clk_freq,
         with_pcie    = args.with_pcie,
         with_hbm     = args.with_hbm,
-        **soc_core_argdict(args)
+        **parser.soc_argdict
     )
-    builder = Builder(soc, **builder_argdict(args))
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build()
+        builder.build(**parser.toolchain_argdict)
 
     if args.driver:
         generate_litepcie_software(soc, os.path.join(builder.output_dir, "driver"))

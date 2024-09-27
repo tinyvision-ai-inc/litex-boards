@@ -10,12 +10,12 @@ import os
 import sys
 
 from migen import *
-from migen.genlib.misc import WaitTimer
 from migen.genlib.resetsync import AsyncResetSynchronizer
 
-from litex_boards.platforms import gsd_orangecrab
+from litex.gen import *
+from litex.gen.genlib.misc import WaitTimer
 
-from litex.build.lattice.trellis import trellis_args, trellis_argdict
+from litex_boards.platforms import gsd_orangecrab
 
 from litex.soc.cores.clock import *
 from litex.soc.integration.soc_core import *
@@ -27,18 +27,18 @@ from litedram.phy import ECP5DDRPHY
 
 # CRG ---------------------------------------------------------------------------------------------
 
-class _CRG(Module):
-    def __init__(self, platform, sys_clk_freq, with_usb_pll=False):
-        self.rst = Signal()
-        self.clock_domains.cd_por = ClockDomain()
-        self.clock_domains.cd_sys = ClockDomain()
+class _CRG(LiteXModule):
+    def __init__(self, platform, sys_clk_freq, with_usb_pll=False, with_dfu_rst=True):
+        self.rst    = Signal()
+        self.cd_por = ClockDomain()
+        self.cd_sys = ClockDomain()
 
         # # #
 
         # Clk / Rst
         clk48 = platform.request("clk48")
         rst_n = platform.request("usr_btn", loose=True)
-        if rst_n is None: rst_n = 1
+        if (rst_n is None) or (not with_dfu_rst): rst_n = 1
 
         # Power on reset
         por_count = Signal(16, reset=2**16-1)
@@ -48,15 +48,15 @@ class _CRG(Module):
         self.sync.por += If(~por_done, por_count.eq(por_count - 1))
 
         # PLL
-        self.submodules.pll = pll = ECP5PLL()
+        self.pll = pll = ECP5PLL()
         self.comb += pll.reset.eq(~por_done | ~rst_n | self.rst)
         pll.register_clkin(clk48, 48e6)
         pll.create_clkout(self.cd_sys, sys_clk_freq)
 
         # USB PLL
         if with_usb_pll:
-            self.clock_domains.cd_usb_12 = ClockDomain()
-            self.clock_domains.cd_usb_48 = ClockDomain()
+            self.cd_usb_12 = ClockDomain()
+            self.cd_usb_48 = ClockDomain()
             usb_pll = ECP5PLL()
             self.submodules += usb_pll
             self.comb += usb_pll.reset.eq(~por_done)
@@ -65,21 +65,21 @@ class _CRG(Module):
             usb_pll.create_clkout(self.cd_usb_12, 12e6)
 
         # FPGA Reset (press usr_btn for 1 second to fallback to bootloader)
-        reset_timer = WaitTimer(int(48e6))
-        reset_timer = ClockDomainsRenamer("por")(reset_timer)
-        self.submodules += reset_timer
-        self.comb += reset_timer.wait.eq(~rst_n)
-        self.comb += platform.request("rst_n").eq(~reset_timer.done)
+        if with_dfu_rst:
+            reset_timer = WaitTimer(48e6)
+            reset_timer = ClockDomainsRenamer("por")(reset_timer)
+            self.submodules += reset_timer
+            self.comb += reset_timer.wait.eq(~rst_n)
+            self.comb += platform.request("rst_n").eq(~reset_timer.done)
 
-
-class _CRGSDRAM(Module):
-    def __init__(self, platform, sys_clk_freq, with_usb_pll=False):
+class _CRGSDRAM(LiteXModule):
+    def __init__(self, platform, sys_clk_freq, with_usb_pll=False, with_dfu_rst=True):
         self.rst = Signal()
-        self.clock_domains.cd_init     = ClockDomain()
-        self.clock_domains.cd_por      = ClockDomain()
-        self.clock_domains.cd_sys      = ClockDomain()
-        self.clock_domains.cd_sys2x    = ClockDomain()
-        self.clock_domains.cd_sys2x_i  = ClockDomain()
+        self.cd_init     = ClockDomain()
+        self.cd_por      = ClockDomain()
+        self.cd_sys      = ClockDomain()
+        self.cd_sys2x    = ClockDomain()
+        self.cd_sys2x_i  = ClockDomain()
 
         # # #
 
@@ -89,7 +89,7 @@ class _CRGSDRAM(Module):
         # Clk / Rst
         clk48 = platform.request("clk48")
         rst_n = platform.request("usr_btn", loose=True)
-        if rst_n is None: rst_n = 1
+        if (rst_n is None) or (not with_dfu_rst): rst_n = 1
 
         # Power on reset
         por_count = Signal(16, reset=2**16-1)
@@ -100,7 +100,7 @@ class _CRGSDRAM(Module):
 
         # PLL
         sys2x_clk_ecsout = Signal()
-        self.submodules.pll = pll = ECP5PLL()
+        self.pll = pll = ECP5PLL()
         self.comb += pll.reset.eq(~por_done | ~rst_n | self.rst)
         pll.register_clkin(clk48, 48e6)
         pll.create_clkout(self.cd_sys2x_i, 2*sys_clk_freq)
@@ -125,8 +125,8 @@ class _CRGSDRAM(Module):
 
         # USB PLL
         if with_usb_pll:
-            self.clock_domains.cd_usb_12 = ClockDomain()
-            self.clock_domains.cd_usb_48 = ClockDomain()
+            self.cd_usb_12 = ClockDomain()
+            self.cd_usb_48 = ClockDomain()
             usb_pll = ECP5PLL()
             self.submodules += usb_pll
             self.comb += usb_pll.reset.eq(~por_done)
@@ -135,22 +135,26 @@ class _CRGSDRAM(Module):
             usb_pll.create_clkout(self.cd_usb_12, 12e6)
 
         # FPGA Reset (press usr_btn for 1 second to fallback to bootloader)
-        reset_timer = WaitTimer(int(48e6))
-        reset_timer = ClockDomainsRenamer("por")(reset_timer)
-        self.submodules += reset_timer
-        self.comb += reset_timer.wait.eq(~rst_n)
-        self.comb += platform.request("rst_n").eq(~reset_timer.done)
+        if with_dfu_rst:
+            reset_timer = WaitTimer(48e6)
+            reset_timer = ClockDomainsRenamer("por")(reset_timer)
+            self.submodules += reset_timer
+            self.comb += reset_timer.wait.eq(~rst_n)
+            self.comb += platform.request("rst_n").eq(~reset_timer.done)
 
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, revision="0.2", device="25F", sdram_device="MT41K64M16",
-                 sys_clk_freq=int(48e6), toolchain="trellis", with_led_chaser=True, **kwargs):
+    def __init__(self, revision="0.2", device="25F", sys_clk_freq=48e6, toolchain="trellis",
+        sdram_device    = "MT41K64M16",
+        with_dfu_rst    = True,
+        with_led_chaser = True,
+        **kwargs):
         platform = gsd_orangecrab.Platform(revision=revision, device=device ,toolchain=toolchain)
 
         # CRG --------------------------------------------------------------------------------------
         crg_cls      = _CRGSDRAM if kwargs.get("integrated_main_ram_size", 0) == 0 else _CRG
-        self.submodules.crg = crg_cls(platform, sys_clk_freq, with_usb_pll=True)
+        self.crg = crg_cls(platform, sys_clk_freq, with_usb_pll=True, with_dfu_rst=with_dfu_rst)
 
         # SoCCore ----------------------------------------------------------------------------------
         # Defaults to USB ACM through ValentyUSB.
@@ -168,7 +172,7 @@ class BaseSoC(SoCCore):
             sdram_module = available_sdram_modules.get(sdram_device)
 
             ddram_pads = platform.request("ddram")
-            self.submodules.ddrphy = ECP5DDRPHY(
+            self.ddrphy = ECP5DDRPHY(
                 pads         = ddram_pads,
                 sys_clk_freq = sys_clk_freq,
                 dm_remapping = {0:1, 1:0},
@@ -188,27 +192,21 @@ class BaseSoC(SoCCore):
 
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
-            self.submodules.leds = LedChaser(
+            self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
                 sys_clk_freq = sys_clk_freq)
 
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on OrangeCrab")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",           action="store_true",  help="Build design.")
-    target_group.add_argument("--load",            action="store_true",  help="Load bitstream.")
-    target_group.add_argument("--toolchain",       default="trellis",    help="FPGA toolchain (trellis or diamond).")
-    target_group.add_argument("--sys-clk-freq",    default=48e6,         help="System clock frequency.")
-    target_group.add_argument("--revision",        default="0.2",        help="Board Revision (0.1 or 0.2).")
-    target_group.add_argument("--device",          default="25F",        help="ECP5 device (25F, 45F or 85F).")
-    target_group.add_argument("--sdram-device",    default="MT41K64M16", help="SDRAM device (MT41K64M16, MT41K128M16, MT41K256M16 or MT41K512M16).")
-    target_group.add_argument("--with-spi-sdcard", action="store_true",  help="Enable SPI-mode SDCard support.")
-    builder_args(parser)
-    soc_core_args(parser)
-    trellis_args(parser)
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=gsd_orangecrab.Platform, description="LiteX SoC on OrangeCrab.")
+    parser.add_target_argument("--sys-clk-freq",    default=48e6, type=float, help="System clock frequency.")
+    parser.add_target_argument("--revision",        default="0.2",            help="Board Revision (0.1 or 0.2).")
+    parser.add_target_argument("--device",          default="25F",            help="ECP5 device (25F, 45F or 85F).")
+    parser.add_target_argument("--sdram-device",    default="MT41K64M16",     help="SDRAM device (MT41K64M16, MT41K128M16, MT41K256M16 or MT41K512M16).")
+    parser.add_target_argument("--with-spi-sdcard", action="store_true",      help="Enable SPI-mode SDCard support.")
+    parser.add_target_argument("--without-dfu-rst", action="store_true",      help="Disable DFU Reset when pressing Button for 1s.")
     args = parser.parse_args()
 
     soc = BaseSoC(
@@ -216,14 +214,14 @@ def main():
         revision     = args.revision,
         device       = args.device,
         sdram_device = args.sdram_device,
-        sys_clk_freq = int(float(args.sys_clk_freq)),
-        **soc_core_argdict(args))
+        sys_clk_freq = args.sys_clk_freq,
+        with_dfu_rst = not args.without_dfu_rst,
+        **parser.soc_argdict)
     if args.with_spi_sdcard:
         soc.add_spi_sdcard()
-    builder = Builder(soc, **builder_argdict(args))
-    builder_kargs = trellis_argdict(args) if args.toolchain == "trellis" else {}
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build(**builder_kargs)
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()

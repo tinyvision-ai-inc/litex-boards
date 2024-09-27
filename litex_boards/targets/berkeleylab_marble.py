@@ -26,6 +26,8 @@ then test and benchmark the etherbone link:
 
 from migen import *
 
+from litex.gen import *
+
 from litex_boards.platforms import berkeleylab_marble
 
 from litex.soc.cores.clock import *
@@ -41,17 +43,17 @@ from liteeth.phy.s7rgmii import LiteEthPHYRGMII
 
 # CRG ----------------------------------------------------------------------------------------------
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq, resets=[]):
-        self.rst = Signal()
-        self.clock_domains.cd_sys    = ClockDomain()
-        self.clock_domains.cd_sys4x  = ClockDomain()
-        self.clock_domains.cd_sys4x_dqs = ClockDomain()
-        self.clock_domains.cd_idelay = ClockDomain()
+        self.rst          = Signal()
+        self.cd_sys       = ClockDomain()
+        self.cd_sys4x     = ClockDomain()
+        self.cd_sys4x_dqs = ClockDomain()
+        self.cd_idelay    = ClockDomain()
 
         # # #
 
-        self.submodules.pll = pll = S7MMCM(speedgrade=-2)
+        self.pll = pll = S7MMCM(speedgrade=-2)
 
         resets.append(self.rst)
         self.comb += pll.reset.eq(reduce(or_, resets))
@@ -62,19 +64,18 @@ class _CRG(Module):
         pll.create_clkout(self.cd_idelay, 200e6)
         platform.add_false_path_constraints(self.cd_sys.clk, pll.clkin) # Ignore sys_clk to pll.clkin path created by SoC's rst.
 
-        self.submodules.idelayctrl = S7IDELAYCTRL(self.cd_idelay)
+        self.idelayctrl = S7IDELAYCTRL(self.cd_idelay)
 
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, sys_clk_freq=int(125e6),
+    def __init__(self, sys_clk_freq=125e6,
         with_ethernet   = False,
         with_etherbone  = False,
         with_rts_reset  = False,
         with_led_chaser = True,
         spd_dump        = None,
-        **kwargs
-    ):
+        **kwargs):
         platform = berkeleylab_marble.Platform()
 
         # CRG, resettable over USB serial RTS signal -----------------------------------------------
@@ -82,14 +83,14 @@ class BaseSoC(SoCCore):
         if with_rts_reset:
             ser_pads = platform.lookup_request('serial')
             resets.append(ser_pads.rts)
-        self.submodules.crg = _CRG(platform, sys_clk_freq, resets)
+        self.crg = _CRG(platform, sys_clk_freq, resets)
 
         # SoCCore ----------------------------------------------------------------------------------
         SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX SoC on Berkeley-Lab Marble", **kwargs)
 
         # DDR3 SDRAM -------------------------------------------------------------------------------
         if not self.integrated_main_ram_size:
-            self.submodules.ddrphy = s7ddrphy.K7DDRPHY(
+            self.ddrphy = s7ddrphy.K7DDRPHY(
                 platform.request("ddram"),
                 memtype      = "DDR3",
                 nphases      = 4,
@@ -114,7 +115,7 @@ class BaseSoC(SoCCore):
 
         # Ethernet ---------------------------------------------------------------------------------
         if with_ethernet or with_etherbone:
-            self.submodules.ethphy = LiteEthPHYRGMII(
+            self.ethphy = LiteEthPHYRGMII(
                 clock_pads = self.platform.request("eth_clocks"),
                 pads       = self.platform.request("eth"),
                 tx_delay   = 0
@@ -132,43 +133,38 @@ class BaseSoC(SoCCore):
 
         # System I2C (behing multiplexer) ----------------------------------------------------------
         i2c_pads = platform.request('i2c_fpga')
-        self.submodules.i2c = I2CMaster(i2c_pads)
+        self.i2c = I2CMaster(i2c_pads)
 
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
-            self.submodules.leds = LedChaser(
+            self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
                 sys_clk_freq = sys_clk_freq)
 
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on BerkeleyLab Marble")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",          action="store_true", help="Build design.")
-    target_group.add_argument("--load",           action="store_true", help="Load bitstream.")
-    target_group.add_argument("--sys-clk-freq",   default=125e6,       help="System clock frequency.")
-    target_group.add_argument("--with-ethernet",  action="store_true", help="Enable Ethernet support.")
-    target_group.add_argument("--with-etherbone", action="store_true", help="Enable Etherbone support.")
-    target_group.add_argument("--with-rts-reset", action="store_true", help="Connect UART RTS line to sys_clk reset.")
-    target_group.add_argument("--with-bist",      action="store_true", help="Add DDR3 BIST Generator/Checker.")
-    target_group.add_argument("--spd-dump",       type=str,            help="DDR3 configuration file, dumped using the `spdread` command in LiteX BIOS.")
-    builder_args(parser)
-    soc_core_args(parser)
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=berkeleylab_marble.Platform, description="LiteX SoC on BerkeleyLab Marble.")
+    parser.add_target_argument("--sys-clk-freq",   default=125e6, type=float, help="System clock frequency.")
+    parser.add_target_argument("--with-ethernet",  action="store_true",       help="Enable Ethernet support.")
+    parser.add_target_argument("--with-etherbone", action="store_true",       help="Enable Etherbone support.")
+    parser.add_target_argument("--with-rts-reset", action="store_true",       help="Connect UART RTS line to sys_clk reset.")
+    parser.add_target_argument("--with-bist",      action="store_true",       help="Add DDR3 BIST Generator/Checker.")
+    parser.add_target_argument("--spd-dump",                                  help="DDR3 configuration file, dumped using the `spdread` command in LiteX BIOS.")
     args = parser.parse_args()
 
     soc = BaseSoC(
-        sys_clk_freq  = int(float(args.sys_clk_freq)),
-        with_ethernet = args.with_ethernet,
+        sys_clk_freq   = args.sys_clk_freq,
+        with_ethernet  = args.with_ethernet,
         with_etherbone = args.with_etherbone,
-        with_bist = args.with_bist,
-        spd_dump = args.spd_dump,
-        **soc_core_argdict(args)
+        with_bist      = args.with_bist,
+        spd_dump       = args.spd_dump,
+        **parser.soc_argdict
     )
-    builder = Builder(soc, **builder_argdict(args))
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build()
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()

@@ -8,7 +8,7 @@
 
 # Build/Use ----------------------------------------------------------------------------------------
 # Build/Load bitstream:
-# ./siglent_ds1104xe.py --with-etherbone --uart-name=crossover --csr-csv=csr.csv --build --load
+# ./siglent_sds1104xe.py --with-etherbone --uart-name=crossover --csr-csv=csr.csv --build --load
 #
 # Test Ethernet:
 # ping 192.168.1.50
@@ -16,12 +16,27 @@
 # Test Console:
 # litex_server --udp
 # litex_term crossover
+#
+#
+# With Jtagbone ------------------------------------------------------------------------------------
+# Build/Load bitstream:
+# ./siglent_sds1104xe.py --with-jtagbone --uart-name=crossover --csr-csv=csr.csv --build --load
+#
+# In a first terminal:
+# litex_server --jtag --jtag-config openocd_xc7z_ft232.cfg
+#
+# In a second terminal:
+# litex_cli --regs # to dump all registers
+# Or
+# litex_term crossover # to have access to LiteX bios
+#
 # --------------------------------------------------------------------------------------------------
 
 from migen import *
 
+from litex.gen import *
+
 from litex_boards.platforms import siglent_sds1104xe
-from litex.build.xilinx.vivado import vivado_build_args, vivado_build_argdict
 
 from litex.soc.cores.clock import *
 from litex.soc.integration.soc_core import *
@@ -36,14 +51,14 @@ from liteeth.phy.mii import LiteEthPHYMII
 
 # CRG ----------------------------------------------------------------------------------------------
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq, with_ethernet=False):
-        self.rst = Signal()
-        self.clock_domains.cd_sys       = ClockDomain()
-        self.clock_domains.cd_sys4x     = ClockDomain()
-        self.clock_domains.cd_sys4x_dqs = ClockDomain()
-        self.clock_domains.cd_idelay    = ClockDomain()
-        self.clock_domains.cd_dvi       = ClockDomain()
+        self.rst          = Signal()
+        self.cd_sys       = ClockDomain()
+        self.cd_sys4x     = ClockDomain()
+        self.cd_sys4x_dqs = ClockDomain()
+        self.cd_idelay    = ClockDomain()
+        self.cd_dvi       = ClockDomain()
 
         # # #
 
@@ -51,7 +66,7 @@ class _CRG(Module):
         clk25 = ClockSignal("eth_tx") if with_ethernet else platform.request("eth_clocks").rx
 
         # PLL
-        self.submodules.pll = pll = S7PLL(speedgrade=-1)
+        self.pll = pll = S7PLL(speedgrade=-1)
         pll.register_clkin(clk25, 25e6)
         pll.create_clkout(self.cd_sys,       sys_clk_freq)
         pll.create_clkout(self.cd_sys4x,     4*sys_clk_freq)
@@ -60,16 +75,21 @@ class _CRG(Module):
         pll.create_clkout(self.cd_dvi,       33.3e6)
         platform.add_false_path_constraints(self.cd_sys.clk, pll.clkin) # Ignore sys_clk to pll.clkin path created by SoC's rst.
 
-        self.submodules.idelayctrl = S7IDELAYCTRL(self.cd_idelay)
+        self.idelayctrl = S7IDELAYCTRL(self.cd_idelay)
 
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, sys_clk_freq=int(100e6), with_etherbone=True, eth_ip="192.168.1.50", with_video_terminal=False, with_video_framebuffer=False, **kwargs):
+    def __init__(self, sys_clk_freq=100e6,
+        with_etherbone         = True,
+        eth_ip                 = "192.168.1.50",
+        with_video_terminal    = False,
+        with_video_framebuffer = False,
+        **kwargs):
         platform = siglent_sds1104xe.Platform()
 
         # CRG --------------------------------------------------------------------------------------
-        self.submodules.crg = _CRG(platform, sys_clk_freq, with_ethernet=with_etherbone)
+        self.crg = _CRG(platform, sys_clk_freq, with_ethernet=with_etherbone)
 
         # SoCCore ----------------------------------------------------------------------------------
         if kwargs.get("uart_name", "serial") == "serial":
@@ -78,7 +98,7 @@ class BaseSoC(SoCCore):
 
         # DDR3 SDRAM -------------------------------------------------------------------------------
         if not self.integrated_main_ram_size:
-            self.submodules.ddrphy = s7ddrphy.A7DDRPHY(
+            self.ddrphy = s7ddrphy.A7DDRPHY(
                 pads           = PHYPadsReducer(platform.request("ddram"), [0, 1, 2, 3]),
                 memtype        = "DDR3",
                 nphases        = 4,
@@ -89,54 +109,22 @@ class BaseSoC(SoCCore):
                 l2_cache_size = kwargs.get("l2_size", 8192)
             )
 
-        # Etherbone --------------------------------------------------------------------------------
+        # Etherbone + Ethernet ---------------------------------------------------------------------
         if with_etherbone:
-            # FIXME: Simplify LiteEth Hybrid MAC integration.
-            from liteeth.common import convert_ip
-            from liteeth.mac import LiteEthMAC
-            from liteeth.core.arp import LiteEthARP
-            from liteeth.core.ip import LiteEthIP
-            from liteeth.core.udp import LiteEthUDP
-            from liteeth.core.icmp import LiteEthICMP
-            from liteeth.core import LiteEthUDPIPCore
-            from liteeth.frontend.etherbone import LiteEthEtherbone
-
             # Ethernet PHY
-            self.submodules.ethphy = LiteEthPHYMII(
+            self.ethphy = LiteEthPHYMII(
                 clock_pads = self.platform.request("eth_clocks"),
-                pads       = self.platform.request("eth"))
-            etherbone_ip_address  = convert_ip("192.168.1.51")
-            etherbone_mac_address = 0x10e2d5000001
+                pads       = self.platform.request("eth"),
+            )
 
-            # Ethernet MAC
-            self.submodules.ethmac = LiteEthMAC(phy=self.ethphy, dw=8,
-                interface  = "hybrid",
-                endianness = self.cpu.endianness,
-                hw_mac     = etherbone_mac_address)
-
-            # Software Interface.
-            self.add_memory_region("ethmac", getattr(self.mem_map, "ethmac", None), 0x2000, type="io")
-            self.add_wb_slave(self.mem_regions["ethmac"].origin, self.ethmac.bus, 0x2000)
-            if self.irq.enabled:
-                self.irq.add("ethmac", use_loc_if_exists=True)
-
-            # Hardware Interface.
-            self.submodules.arp  = LiteEthARP(self.ethmac, etherbone_mac_address, etherbone_ip_address, sys_clk_freq, dw=8)
-            self.submodules.ip   = LiteEthIP(self.ethmac, etherbone_mac_address, etherbone_ip_address, self.arp.table, dw=8)
-            self.submodules.icmp = LiteEthICMP(self.ip, etherbone_ip_address, dw=8)
-            self.submodules.udp  = LiteEthUDP(self.ip, etherbone_ip_address, dw=8)
-            self.add_constant("ETH_PHY_NO_RESET") # Disable reset from BIOS to avoid disabling Hardware Interface.
-
-            # Etherbone
-            self.submodules.etherbone = LiteEthEtherbone(self.udp, 1234, mode="master")
-            self.bus.add_master(master=self.etherbone.wishbone.bus)
-
-            # Timing constraints
-            eth_rx_clk = self.ethphy.crg.cd_eth_rx.clk
-            eth_tx_clk = self.ethphy.crg.cd_eth_tx.clk
-            self.platform.add_period_constraint(eth_rx_clk, 1e9/self.ethphy.rx_clk_freq)
-            self.platform.add_period_constraint(eth_tx_clk, 1e9/self.ethphy.tx_clk_freq)
-            self.platform.add_false_path_constraints(self.crg.cd_sys.clk, eth_rx_clk, eth_tx_clk)
+            # Etherbone.
+            self.add_etherbone(
+                phy         = self.ethphy,
+                ip_address  = "192.168.1.51",
+                mac_address = 0x10e2d5000001,
+                data_width  = 8,
+                with_ethmac = True,
+            )
 
         # Video ------------------------------------------------------------------------------------
         video_timings = ("800x480@60Hz", {
@@ -151,7 +139,7 @@ class BaseSoC(SoCCore):
             "v_sync_width"  : 1,
         })
         if with_video_terminal or with_video_framebuffer:
-            self.submodules.videophy = VideoVGAPHY(platform.request("lcd"), clock_domain="dvi")
+            self.videophy = VideoVGAPHY(platform.request("lcd"), clock_domain="dvi")
             if with_video_terminal:
                 self.add_video_terminal(phy=self.videophy, timings=video_timings, clock_domain="dvi")
             if with_video_framebuffer:
@@ -160,34 +148,28 @@ class BaseSoC(SoCCore):
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on SDS1104X-E")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",          action="store_true",              help="Build design.")
-    target_group.add_argument("--load",           action="store_true",              help="Load bitstream.")
-    target_group.add_argument("--sys-clk-freq",   default=100e6,                    help="System clock frequency.")
-    target_group.add_argument("--with-etherbone", action="store_true",              help="Enable Etherbone support.")
-    target_group.add_argument("--eth-ip",         default="192.168.1.50", type=str, help="Ethernet/Etherbone IP address.")
-    viopts = target_group.add_mutually_exclusive_group()
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=siglent_sds1104xe.Platform, description="LiteX SoC on SDS1104X-E.")
+    parser.add_target_argument("--sys-clk-freq",   default=100e6, type=float, help="System clock frequency.")
+    parser.add_target_argument("--with-etherbone", action="store_true",       help="Enable Etherbone support.")
+    parser.add_target_argument("--eth-ip",         default="192.168.1.50",     help="Ethernet/Etherbone IP address.")
+    viopts = parser.target_group.add_mutually_exclusive_group()
     viopts.add_argument("--with-video-terminal",    action="store_true", help="Enable Video Terminal (HDMI).")
     viopts.add_argument("--with-video-framebuffer", action="store_true", help="Enable Video Framebuffer (HDMI).")
-    builder_args(parser)
-    soc_core_args(parser)
-    vivado_build_args(parser)
     args = parser.parse_args()
 
     soc = BaseSoC(
-        sys_clk_freq   = int(float(args.sys_clk_freq)),
+        sys_clk_freq   = args.sys_clk_freq,
         with_etherbone = args.with_etherbone,
         eth_ip         = args.eth_ip,
         with_video_terminal    = args.with_video_terminal,
         with_video_framebuffer = args.with_video_framebuffer,
-        **soc_core_argdict(args)
+        **parser.soc_argdict
     )
 
-    builder = Builder(soc, **builder_argdict(args))
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build(**vivado_build_argdict(args))
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()

@@ -12,9 +12,9 @@ import sys
 from migen import *
 from migen.genlib.resetsync import AsyncResetSynchronizer
 
-from litex_boards.platforms import logicbone
+from litex.gen import *
 
-from litex.build.lattice.trellis import trellis_args, trellis_argdict
+from litex_boards.platforms import logicbone
 
 from litex.soc.cores.clock import *
 from litex.soc.integration.soc_core import *
@@ -27,14 +27,14 @@ from liteeth.phy.ecp5rgmii import LiteEthPHYRGMII
 
 # _CRG ---------------------------------------------------------------------------------------------
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq, with_usb_pll=False):
-        self.rst = Signal()
-        self.clock_domains.cd_init     = ClockDomain()
-        self.clock_domains.cd_por      = ClockDomain()
-        self.clock_domains.cd_sys      = ClockDomain()
-        self.clock_domains.cd_sys2x    = ClockDomain()
-        self.clock_domains.cd_sys2x_i  = ClockDomain()
+        self.rst        = Signal()
+        self.cd_init    = ClockDomain()
+        self.cd_por     = ClockDomain()
+        self.cd_sys     = ClockDomain()
+        self.cd_sys2x   = ClockDomain()
+        self.cd_sys2x_i = ClockDomain()
 
         # # #
 
@@ -53,7 +53,7 @@ class _CRG(Module):
 
         # PLL
         sys2x_clk_ecsout = Signal()
-        self.submodules.pll = pll = ECP5PLL()
+        self.pll = pll = ECP5PLL()
         self.comb += pll.reset.eq(~por_done | self.rst)
         pll.register_clkin(clk25, 25e6)
         pll.create_clkout(self.cd_sys2x_i, 2*sys_clk_freq)
@@ -78,8 +78,8 @@ class _CRG(Module):
 
         # USB PLL
         if with_usb_pll:
-            self.clock_domains.cd_usb_12 = ClockDomain()
-            self.clock_domains.cd_usb_48 = ClockDomain()
+            self.cd_usb_12 = ClockDomain()
+            self.cd_usb_48 = ClockDomain()
             usb_pll = ECP5PLL()
             self.submodules += usb_pll
             self.comb += usb_pll.reset.eq(~por_done | self.rst)
@@ -91,7 +91,7 @@ class _CRG(Module):
 
 class BaseSoC(SoCCore):
     def __init__(self, revision="rev0", device="45F", sdram_device="MT41K512M16",
-        sys_clk_freq    = int(75e6),
+        sys_clk_freq    = 75e6,
         with_ethernet   = False,
         with_led_chaser = True,
         toolchain       = "trellis",
@@ -99,7 +99,7 @@ class BaseSoC(SoCCore):
         platform = logicbone.Platform(revision=revision, device=device ,toolchain=toolchain)
 
         # CRG --------------------------------------------------------------------------------------
-        self.submodules.crg = _CRG(platform, sys_clk_freq, with_usb_pll=True)
+        self.crg = _CRG(platform, sys_clk_freq, with_usb_pll=True)
 
         # SoCCore ----------------------------------------------------------------------------------
         # Defaults to USB ACM through ValentyUSB.
@@ -114,7 +114,7 @@ class BaseSoC(SoCCore):
             }
             sdram_module = available_sdram_modules.get(sdram_device)
 
-            self.submodules.ddrphy = ECP5DDRPHY(
+            self.ddrphy = ECP5DDRPHY(
                 platform.request("ddram"),
                 sys_clk_freq=sys_clk_freq)
             self.comb += self.crg.stop.eq(self.ddrphy.init.stop)
@@ -127,7 +127,7 @@ class BaseSoC(SoCCore):
 
         # Ethernet ---------------------------------------------------------------------------------
         if with_ethernet:
-            self.submodules.ethphy = LiteEthPHYRGMII(
+            self.ethphy = LiteEthPHYRGMII(
                 clock_pads = self.platform.request("eth_clocks"),
                 pads       = self.platform.request("eth"))
             self.add_ethernet(phy=self.ethphy)
@@ -135,43 +135,35 @@ class BaseSoC(SoCCore):
 
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
-            self.submodules.leds = LedChaser(
+            self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
                 sys_clk_freq = sys_clk_freq)
 
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on Logicbone")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",          action="store_true",   help="Build design.")
-    target_group.add_argument("--load",           action="store_true",   help="Load bitstream.")
-    target_group.add_argument("--toolchain",      default="trellis",     help="FPGA toolchain (trellis or diamond).")
-    target_group.add_argument("--sys-clk-freq",   default=75e6,          help="System clock frequency.")
-    target_group.add_argument("--device",         default="45F",         help="FPGA device (45F or 85F).")
-    target_group.add_argument("--sdram-device",   default="MT41K512M16", help="SDRAM device (MT41K512M16).")
-    target_group.add_argument("--with-ethernet",  action="store_true",   help="Enable Ethernet support.")
-    target_group.add_argument("--with-sdcard",    action="store_true",   help="Enable SDCard support.")
-    builder_args(parser)
-    soc_core_args(parser)
-    trellis_args(parser)
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=logicbone.Platform, description="LiteX SoC on Logicbone.")
+    parser.add_target_argument("--sys-clk-freq",   default=75e6, type=float, help="System clock frequency.")
+    parser.add_target_argument("--device",         default="45F",            help="FPGA device (45F or 85F).")
+    parser.add_target_argument("--sdram-device",   default="MT41K512M16",    help="SDRAM device (MT41K512M16).")
+    parser.add_target_argument("--with-ethernet",  action="store_true",      help="Enable Ethernet support.")
+    parser.add_target_argument("--with-sdcard",    action="store_true",      help="Enable SDCard support.")
     args = parser.parse_args()
 
     soc = BaseSoC(
         toolchain     = args.toolchain,
         device        = args.device,
-        sys_clk_freq  = int(float(args.sys_clk_freq)),
+        sys_clk_freq  = args.sys_clk_freq,
         sdram_device  = args.sdram_device,
         with_ethernet = args.with_ethernet,
-        **soc_core_argdict(args)
+        **parser.soc_argdict
     )
     if args.with_sdcard:
         soc.add_sdcard()
-    builder = Builder(soc, **builder_argdict(args))
-    builder_kargs = trellis_argdict(args) if args.toolchain == "trellis" else {}
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build(**builder_kargs)
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()

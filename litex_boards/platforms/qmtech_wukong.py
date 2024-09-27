@@ -5,60 +5,83 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 from litex.build.generic_platform import *
-from litex.build.xilinx import XilinxPlatform
+from litex.build.xilinx import Xilinx7SeriesPlatform
 from litex.build.openocd import OpenOCD
 
 # IOs ----------------------------------------------------------------------------------------------
 
-# IOs specific to V1 of the board
+# IOs specific to V1 of the board.
 _io_v1 = [
-    # Reset (Key1 button)
-    ("cpu_reset",  0, Pins("J8"),  IOStandard("LVCMOS33")),  # key1
+    # Reset (Key1 button).
+    ("cpu_reset", 0, Pins("J8"),  IOStandard("LVCMOS33")),
 
-    #Clock
-    ("clk50"   ,   0, Pins("M22"), IOStandard("LVCMOS33")),
+    # Clock.
+    ("clk50"   ,  0, Pins("M22"), IOStandard("LVCMOS33")),
 
-    # Leds
-    ("user_led",   0, Pins("J6"),   IOStandard("LVCMOS33")),
-    ("user_led",   1, Pins("H6"),   IOStandard("LVCMOS33")),
+    # Leds.
+    ("user_led",  0, Pins("J6"),   IOStandard("LVCMOS33")),
+    ("user_led",  1, Pins("H6"),   IOStandard("LVCMOS33")),
 ]
 
-# IOs specific to V2 of the board
+# IOs specific to V2 of the board.
 _io_v2 = [
-    # Reset (Key1 button)
+    # Reset (Key1 button).
     ("cpu_reset",  0, Pins("M6"),  IOStandard("LVCMOS33")),
 
-    # Clock
+    # Clock.
     ("clk50"   ,   0, Pins("M21"), IOStandard("LVCMOS33")),
 
-    # Leds
+    # Leds.
     ("user_led",   0, Pins("V16"),   IOStandard("LVCMOS33")),
     ("user_led",   1, Pins("V17"),   IOStandard("LVCMOS33")),
 
-    # SD-Card
+    # SD-Card.
     ("sdcard", 0,
-     Subsignal("data", Pins("M5 M7 H6 J6")),
-     Subsignal("cmd",  Pins("J8")),
-     Subsignal("clk",  Pins("L4")),
-     Subsignal("cd",   Pins("N6")),
-     Misc("SLEW=FAST"),
-     IOStandard("LVCMOS33"),
-     ),
+        Subsignal("data", Pins("M5 M7 H6 J6")),
+        Subsignal("cmd",  Pins("J8")),
+        Subsignal("clk",  Pins("L4")),
+        Subsignal("cd",   Pins("N6")),
+        Misc("SLEW=FAST"),
+        IOStandard("LVCMOS33"),
+    ),
 ]
 
-# IO commons to both versions of the board
+# IOs specific to V3 of the board.
+_io_v3 = [
+    # Reset (Key1 button).
+    ("cpu_reset",  0, Pins("M6"),  IOStandard("LVCMOS33")),
+
+    # Clock.
+    ("clk50"   ,   0, Pins("M21"), IOStandard("LVCMOS33")),
+
+    # Leds.
+    ("user_led",   0, Pins("G21"),   IOStandard("LVCMOS33")),
+    ("user_led",   1, Pins("G20"),   IOStandard("LVCMOS33")),
+
+    # SD-Card.
+    ("sdcard", 0,
+        Subsignal("data", Pins("M5 M7 H6 J6")),
+        Subsignal("cmd",  Pins("J8")),
+        Subsignal("clk",  Pins("L4")),
+        Subsignal("cd",   Pins("N6")),
+        Misc("SLEW=FAST"),
+        IOStandard("LVCMOS33"),
+    ),
+]
+
+# IO commons to both versions of the board.
 _io_common = [
-    # Key0 button (Key1 is used as cpu reset and is version specific)
+    # Key0 button (Key1 is used as cpu reset and is version specific).
     ("user_btn",   0, Pins("H7"),   IOStandard("LVCMOS33")),
 
-    # Serial
+    # Serial.
     ("serial", 0,
         Subsignal("tx", Pins("E3")),
         Subsignal("rx", Pins("F3")),
         IOStandard("LVCMOS33"),
     ),
 
-    # SPIFlash
+    # SPIFlash.
     ("spiflash", 0,
         Subsignal("cs_n", Pins("P18")),
         Subsignal("clk",  Pins("H13")),
@@ -75,7 +98,7 @@ _io_common = [
         IOStandard("LVCMOS33")
     ),
 
-    # DDR3 SDRAM
+    # DDR3 SDRAM.
     ("ddram", 0,
         Subsignal("a", Pins(
             "E17 G17 F17 C17 G16 D16 H16 E16",
@@ -108,11 +131,11 @@ _io_common = [
         Misc("SLEW=FAST"),
     ),
 
-    # GMII Ethernet
+    # GMII Ethernet.
     ("eth_clocks", 0,
-        Subsignal("tx", Pins("M2")),
+        Subsignal("tx",  Pins("M2")),
         Subsignal("gtx", Pins("U1")),
-        Subsignal("rx", Pins("P4")),
+        Subsignal("rx",  Pins("P4")),
         IOStandard("LVCMOS33")
     ),
     ("eth", 0,
@@ -130,7 +153,7 @@ _io_common = [
         IOStandard("LVCMOS33")
     ),
 
-    # HDMI out
+    # HDMI out.
     ("hdmi_out", 0,
         Subsignal("clk_p",   Pins("D4"), IOStandard("TMDS_33")),
         Subsignal("clk_n",   Pins("C4"), IOStandard("TMDS_33")),
@@ -150,15 +173,15 @@ _io_common = [
 # Connectors ---------------------------------------------------------------------------------------
 
 _connectors = [
-    ("j10", "D5 G5 G7 G8 E5 E6 D6 G6"),
-    ("j11", "H4 F4 A4 A5 J4 G4 B4 B5"),
+    ("j10", "  D5   G5   G7   G8   E5   E6   D6   G6"),
+    ("j11", "  H4   F4   A4   A5   J4   G4   B4   B5"),
     ("j12", "AB26 AC26 AB24 AC24 AA24 AB25 AA22 AA23",
             " Y25 AA25  W25  Y26  Y22  Y23  W21  Y21",
             " V26  W26  U25  U26  V24  W24  V23  W23",
             " V18  W18  U22  V22  U21  V21  T20  U20",
-            " T19 U19"),
-    ("jp2", "H21 H22 K21 J21 H26 G26 G25 F25",
-            "G20 G21 F23 E23 E26 D26 E25 D25"),
+            " T19  U19"),
+    ("jp2", " H21  H22  K21  J21  H26  G26  G25  F25",
+            " G20  G21  F23  E23  E26  D26  E25  D25"),
     ("jp3", " AF7  AE7  AD8  AC8  AF9  AE9 AD10 AC10",
             "AA11 AB11 AF11 AE11 AD14 AC14 AF13 AE13",
             "AD12 AC12"),
@@ -196,24 +219,32 @@ _ps2_pmod_io = ps2_pmod_io("j11") # PS2 PMOD on top line of J11
 
 # Platform -----------------------------------------------------------------------------------------
 
-class Platform(XilinxPlatform):
+class Platform(Xilinx7SeriesPlatform):
     default_clk_name   = "clk50"
     default_clk_period = 1e9/50e6
 
-    def __init__(self, board_version=1, speed_grade=-2, toolchain="vivado"):
+    def __init__(self, revision=1, speedgrade=-2, toolchain="vivado"):
+        # Check Speedgrade.
+        if speedgrade not in [-1,-2]:
+            raise ValueError(f"Speedgrade {speedgrade} unsupported.")
+        # Create IOs and extend to with board's revision specific IOs.
         io = _io_common
-        if board_version < 2:
-            io.extend(_io_v1)
-        else:
-            io.extend(_io_v2)
-        XilinxPlatform.__init__(self, "xc7a100t{}fgg676".format(speed_grade), io, _connectors,  toolchain=toolchain)
+        io.extend({
+            1 : _io_v1,
+            2 : _io_v2,
+            3 : _io_v3,
+        }[revision])
+        # Create Platform.
+        Xilinx7SeriesPlatform.__init__(self, f"xc7a100t{speedgrade}fgg676", io, _connectors,  toolchain=toolchain)
+
         self.toolchain.bitstream_commands = \
             ["set_property BITSTREAM.CONFIG.SPI_BUSWIDTH 4 [current_design]"]
         self.toolchain.additional_commands = \
             ["write_cfgmem -force -format bin -interface spix4 -size 16 "
-             "-loadbit \"up 0x0 {build_name}.bit\" -file {build_name}.bin"]
+            "-loadbit \"up 0x0 {build_name}.bit\" -file {build_name}.bin"]
+
         self.add_platform_command("set_property INTERNAL_VREF 0.675 [get_iobanks 16]")
-        if board_version < 2:
+        if revision == 1:
             self.add_platform_command("set_property CLOCK_DEDICATED_ROUTE FALSE [get_nets clk50_IBUF]")
         self.add_platform_command("set_property CFGBVS VCCO [current_design]")
         self.add_platform_command("set_property CONFIG_VOLTAGE 3.3 [current_design]")
@@ -222,5 +253,5 @@ class Platform(XilinxPlatform):
         return OpenOCD("openocd_xc7_ft232.cfg", "bscan_spi_xc7a100t.bit")
 
     def do_finalize(self, fragment):
-        XilinxPlatform.do_finalize(self, fragment)
+        Xilinx7SeriesPlatform.do_finalize(self, fragment)
         self.add_period_constraint(self.lookup_request("clk50", loose=True), 1e9/50e6)

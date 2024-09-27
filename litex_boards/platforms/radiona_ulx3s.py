@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 from litex.build.generic_platform import *
-from litex.build.lattice import LatticePlatform
+from litex.build.lattice import LatticeECP5Platform
 from litex.build.lattice.programmer import UJProg
 
 # IOs ----------------------------------------------------------------------------------------------
@@ -14,6 +14,15 @@ _io_common = [
     # Clk / Rst
     ("clk25", 0, Pins("G2"), IOStandard("LVCMOS33")),
     ("rst",   0, Pins("R1"), IOStandard("LVCMOS33")),
+
+    # Buttons
+    ("user_btn", 0, Pins( "D6"), IOStandard("LVCMOS33"), Misc("PULLMODE=DOWN")), # PWR
+    ("user_btn", 1, Pins( "R1"), IOStandard("LVCMOS33"), Misc("PULLMODE=DOWN")), # F1
+    ("user_btn", 2, Pins( "T1"), IOStandard("LVCMOS33"), Misc("PULLMODE=DOWN")), # F2
+    ("user_btn", 3, Pins("R18"), IOStandard("LVCMOS33"), Misc("PULLMODE=DOWN")), # UP
+    ("user_btn", 4, Pins( "V1"), IOStandard("LVCMOS33"), Misc("PULLMODE=DOWN")), # DOWN
+    ("user_btn", 5, Pins( "U1"), IOStandard("LVCMOS33"), Misc("PULLMODE=DOWN")), # LEFT
+    ("user_btn", 6, Pins("H16"), IOStandard("LVCMOS33"), Misc("PULLMODE=DOWN")), # RIGHT
 
     # Leds
     ("user_led", 0, Pins("B2"), IOStandard("LVCMOS33")),
@@ -190,7 +199,7 @@ _io_2_0 = [
 
 # Platform -----------------------------------------------------------------------------------------
 
-class Platform(LatticePlatform):
+class Platform(LatticeECP5Platform):
     default_clk_name   = "clk25"
     default_clk_period = 1e9/25e6
 
@@ -198,11 +207,11 @@ class Platform(LatticePlatform):
         assert device in ["LFE5U-12F", "LFE5U-25F", "LFE5U-45F", "LFE5U-85F"]
         assert revision in ["1.7", "2.0"]
         _io = _io_common + {"1.7": _io_1_7, "2.0": _io_2_0}[revision]
-        LatticePlatform.__init__(self, device + "-6BG381C", _io, toolchain=toolchain, **kwargs)
+        LatticeECP5Platform.__init__(self, device + "-6BG381C", _io, toolchain=toolchain, **kwargs)
 
     def create_programmer(self):
         return UJProg()
 
     def do_finalize(self, fragment):
-        LatticePlatform.do_finalize(self, fragment)
+        LatticeECP5Platform.do_finalize(self, fragment)
         self.add_period_constraint(self.lookup_request("clk25", loose=True), 1e9/25e6)

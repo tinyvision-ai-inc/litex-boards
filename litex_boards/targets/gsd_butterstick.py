@@ -8,16 +8,16 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 # Build/Use:
-# ./gsd_butterstick.py --uart-name=crossover --with-etherbone --csr-csv=csr.csv --build --load
+# ./gsd_butterstick.py --uart-name=crossover --with-etherbone --csr-csv=csr.csv --build --load --programmer (jtag / dfu)
 # litex_server --udp
 # litex_term crossover
 
 from migen import *
 from migen.genlib.resetsync import AsyncResetSynchronizer
 
-from litex_boards.platforms import gsd_butterstick
+from litex.gen import *
 
-from litex.build.lattice.trellis import trellis_args, trellis_argdict
+from litex_boards.platforms import gsd_butterstick
 
 from litex.soc.cores.clock import *
 from litex.soc.integration.soc_core import *
@@ -32,14 +32,14 @@ from liteeth.phy.ecp5rgmii import LiteEthPHYRGMII
 
 # CRG ---------------------------------------------------------------------------------------------
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq):
-        self.rst = Signal()
-        self.clock_domains.cd_init    = ClockDomain()
-        self.clock_domains.cd_por     = ClockDomain()
-        self.clock_domains.cd_sys     = ClockDomain()
-        self.clock_domains.cd_sys2x   = ClockDomain()
-        self.clock_domains.cd_sys2x_i = ClockDomain()
+        self.rst        = Signal()
+        self.cd_init    = ClockDomain()
+        self.cd_por     = ClockDomain()
+        self.cd_sys     = ClockDomain()
+        self.cd_sys2x   = ClockDomain()
+        self.cd_sys2x_i = ClockDomain()
 
         # # #
 
@@ -58,7 +58,7 @@ class _CRG(Module):
         self.sync.por += If(~por_done, por_count.eq(por_count - 1))
 
         # PLL
-        self.submodules.pll = pll = ECP5PLL()
+        self.pll = pll = ECP5PLL()
         self.comb += pll.reset.eq(~por_done | ~rst_n | self.rst)
         pll.register_clkin(clk30, 30e6)
         pll.create_clkout(self.cd_sys2x_i, 2*sys_clk_freq)
@@ -80,8 +80,11 @@ class _CRG(Module):
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, revision="1.0", device="85F", sdram_device="MT41K64M16", sys_clk_freq=int(60e6), 
-        toolchain="trellis", with_ethernet=False, with_etherbone=False, eth_ip="192.168.1.50", 
+    def __init__(self, revision="1.0", device="85F", sys_clk_freq=60e6, toolchain="trellis",
+        sdram_device     = "MT41K64M16",
+        with_ethernet    = False,
+        with_etherbone   = False,
+        eth_ip           = "192.168.1.50",
         eth_dynamic_ip   = False,
         with_spi_flash   = False,
         with_led_chaser  = True,
@@ -90,7 +93,7 @@ class BaseSoC(SoCCore):
         platform = gsd_butterstick.Platform(revision=revision, device=device ,toolchain=toolchain)
 
         # CRG --------------------------------------------------------------------------------------
-        self.submodules.crg = _CRG(platform, sys_clk_freq)
+        self.crg = _CRG(platform, sys_clk_freq)
 
         # SoCCore ----------------------------------------------------------------------------------
         if kwargs["uart_name"] == "serial":
@@ -107,7 +110,7 @@ class BaseSoC(SoCCore):
             }
             sdram_module = available_sdram_modules.get(sdram_device)
 
-            self.submodules.ddrphy = ECP5DDRPHY(
+            self.ddrphy = ECP5DDRPHY(
                 platform.request("ddram"),
                 sys_clk_freq=sys_clk_freq)
             self.comb += self.crg.stop.eq(self.ddrphy.init.stop)
@@ -120,7 +123,7 @@ class BaseSoC(SoCCore):
 
         # Ethernet / Etherbone ---------------------------------------------------------------------
         if with_ethernet or with_etherbone:
-            self.submodules.ethphy = LiteEthPHYRGMII(
+            self.ethphy = LiteEthPHYRGMII(
                 clock_pads = self.platform.request("eth_clocks"),
                 pads       = self.platform.request("eth"),
                 rx_delay   = 0e-9, # KSZ9031RNX phy adds a 1.2ns RX delay
@@ -139,41 +142,35 @@ class BaseSoC(SoCCore):
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
             self.comb += platform.request("user_led_color").eq(0b010) # Blue.
-            self.submodules.leds = LedChaser(
+            self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
                 sys_clk_freq = sys_clk_freq)
 
         # GPIOs ------------------------------------------------------------------------------------
         if with_syzygy_gpio:
             platform.add_extension(gsd_butterstick.raw_syzygy_io("SYZYGY0"))
-            self.submodules.gpio = GPIOTristate(platform.request("SYZYGY0"))
+            self.gpio = GPIOTristate(platform.request("SYZYGY0"))
 
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on ButterStick")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",           action="store_true",    help="Build design.")
-    target_group.add_argument("--load",            action="store_true",    help="Load bitstream.")
-    target_group.add_argument("--toolchain",       default="trellis",      help="FPGA toolchain (trellis or diamond).")
-    target_group.add_argument("--sys-clk-freq",    default=75e6,           help="System clock frequency.")
-    target_group.add_argument("--revision",        default="1.0",          help="Board Revision (1.0).")
-    target_group.add_argument("--device",          default="85F",          help="ECP5 device (25F, 45F, 85F).")
-    target_group.add_argument("--sdram-device",    default="MT41K64M16",   help="SDRAM device (MT41K64M16, MT41K128M16, MT41K256M16 or MT41K512M16).")
-    ethopts = target_group.add_mutually_exclusive_group()
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=gsd_butterstick.Platform, description="LiteX SoC on ButterStick.")
+    parser.add_target_argument("--programmer",   default="jtag",           help="Programming interface (jtag or dfu).")
+    parser.add_target_argument("--sys-clk-freq", default=75e6, type=float, help="System clock frequency.")
+    parser.add_target_argument("--revision",     default="1.0",            help="Board Revision (1.0).")
+    parser.add_target_argument("--device",       default="85F",            help="ECP5 device (25F, 45F, 85F).")
+    parser.add_target_argument("--sdram-device", default="MT41K64M16",     help="SDRAM device (MT41K64M16, MT41K128M16, MT41K256M16 or MT41K512M16).")
+    ethopts = parser.target_group.add_mutually_exclusive_group()
     ethopts.add_argument("--with-ethernet",  action="store_true",    help="Add Ethernet.")
     ethopts.add_argument("--with-etherbone", action="store_true",    help="Add EtherBone.")
-    target_group.add_argument("--eth-ip",          default="192.168.1.50", help="Ethernet/Etherbone IP address.")
-    target_group.add_argument("--eth-dynamic-ip",  action="store_true",    help="Enable dynamic Ethernet IP addresses setting.")
-    target_group.add_argument("--with-spi-flash",  action="store_true",    help="Enable SPI Flash (MMAPed).")
-    sdopts = target_group.add_mutually_exclusive_group()
+    parser.add_target_argument("--eth-ip",         default="192.168.1.50", help="Ethernet/Etherbone IP address.")
+    parser.add_target_argument("--eth-dynamic-ip", action="store_true",    help="Enable dynamic Ethernet IP addresses setting.")
+    parser.add_target_argument("--with-spi-flash", action="store_true",    help="Enable SPI Flash (MMAPed).")
+    sdopts = parser.target_group.add_mutually_exclusive_group()
     sdopts.add_argument("--with-spi-sdcard", action="store_true", help="Enable SPI-mode SDCard support.")
     sdopts.add_argument("--with-sdcard",     action="store_true", help="Enable SDCard support.")
-    target_group.add_argument("--with-syzygy-gpio",action="store_true", help="Enable GPIOs through SYZYGY Breakout on Port-A.")
-    builder_args(parser)
-    soc_core_args(parser)
-    trellis_args(parser)
+    parser.add_target_argument("--with-syzygy-gpio",action="store_true", help="Enable GPIOs through SYZYGY Breakout on Port-A.")
     args = parser.parse_args()
 
     assert not (args.with_etherbone and args.eth_dynamic_ip)
@@ -183,25 +180,24 @@ def main():
         revision         = args.revision,
         device           = args.device,
         sdram_device     = args.sdram_device,
-        sys_clk_freq     = int(float(args.sys_clk_freq)),
+        sys_clk_freq     = args.sys_clk_freq,
         with_ethernet    = args.with_ethernet,
         with_etherbone   = args.with_etherbone,
         eth_ip           = args.eth_ip,
         eth_dynamic_ip   = args.eth_dynamic_ip,
         with_spi_flash   = args.with_spi_flash,
         with_syzygy_gpio = args.with_syzygy_gpio,
-        **soc_core_argdict(args))
+        **parser.soc_argdict)
     if args.with_spi_sdcard:
         soc.add_spi_sdcard()
     if args.with_sdcard:
         soc.add_sdcard()
-    builder = Builder(soc, **builder_argdict(args))
-    builder_kargs = trellis_argdict(args) if args.toolchain == "trellis" else {}
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build(**builder_kargs)
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
-        prog = soc.platform.create_programmer()
+        prog = soc.platform.create_programmer(args.programmer)
         prog.load_bitstream(builder.get_bitstream_filename(mode="sram"))
 
 if __name__ == "__main__":

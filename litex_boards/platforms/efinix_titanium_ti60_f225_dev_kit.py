@@ -13,8 +13,8 @@ from litex.build.efinix import EfinixProgrammer
 
 _io = [
     # Clk
-    ("clk25", 0, Pins("B2"), IOStandard("1.8_V_LVCMOS")),
-    ("clk33", 0, Pins("P2"), IOStandard("1.8_V_LVCMOS")),
+    ("clk25",    0, Pins("B2"),  IOStandard("1.8_V_LVCMOS")),
+    ("clk33",    0, Pins("P2"),  IOStandard("1.8_V_LVCMOS")),
     ("clk74_25", 0, Pins("A11"), IOStandard("1.8_V_LVCMOS")),
 
     # SD-Card
@@ -87,19 +87,19 @@ _io = [
 
     # MIPI
     ("mipi_tx", 0,
-        Subsignal("clk",   Pins("D13"), IOStandard("1.2_V_LVCMOS")),
-        Subsignal("data0", Pins("C15"), IOStandard("1.2_V_LVCMOS")),
-        Subsignal("data1", Pins("D14"), IOStandard("1.2_V_LVCMOS")),
-        Subsignal("data2", Pins("E14"), IOStandard("1.2_V_LVCMOS")),
-        Subsignal("data3", Pins("E12"), IOStandard("1.2_V_LVCMOS")),
+        Subsignal("clk",   Pins("D13"), IOStandard("1.8_V_LVCMOS")),
+        Subsignal("data0", Pins("C15"), IOStandard("1.8_V_LVCMOS")),
+        Subsignal("data1", Pins("D14"), IOStandard("1.8_V_LVCMOS")),
+        Subsignal("data2", Pins("E14"), IOStandard("1.8_V_LVCMOS")),
+        Subsignal("data3", Pins("E12"), IOStandard("1.8_V_LVCMOS")),
         Misc("SLEWRATE=FAST")
     ),
 
     # MIPI
     ("mipi_rx", 0,
-        Subsignal("clk",   Pins("M15"), IOStandard("1.2_V_LVCMOS")),
-        Subsignal("data0", Pins("K11"), IOStandard("1.2_V_LVCMOS")),
-        Subsignal("data1", Pins("L13"), IOStandard("1.2_V_LVCMOS")),
+        Subsignal("clk",   Pins("M15"), IOStandard("1.8_V_LVCMOS")),
+        Subsignal("data0", Pins("K11"), IOStandard("1.8_V_LVCMOS")),
+        Subsignal("data1", Pins("L13"), IOStandard("1.8_V_LVCMOS")),
         Misc("SLEWRATE=FAST")
     ),
 
@@ -116,14 +116,14 @@ iobank_info = [
             ("1B", "1.8 V LVCMOS"),
             ("2A", "1.8 V LVCMOS"),
             ("2B", "1.8 V LVCMOS"),
-            ("3A", "1.2 V LVCMOS"),
-            ("3B", "1.2 V LVCMOS"),
-            ("4A", "1.2 V LVCMOS"),
-            ("4B", "1.2 V LVCMOS"),
-            ("BL", "1.8 V LVCMOS"),
+            ("3A", "1.8 V LVCMOS"),
+            ("3B", "1.8 V LVCMOS"),
+            ("4A", "1.8 V LVCMOS"),
+            ("4B", "1.8 V LVCMOS"),
+            ("BL", "3.3 V LVCMOS"),
             ("BR", "1.8 V LVCMOS"),
             ("TL", "1.8 V LVCMOS"),
-            ("TR", "1.8 V LVCMOS"),
+            ("TR", "3.3 V LVCMOS"),
 ]
 
 # QSE Connectors -----------------------------------------------------------------------------------
@@ -131,37 +131,43 @@ iobank_info = [
 _connectors = [
     ["P1",
         "---", # 0
-        #3V3      5V     GND GND                 GND GND                 GND GND
+        #3V3      5V     GND GND                 GND GND                 GND GND         ↓
         "--- H14 --- G14 --- --- F12 G13 E12 F13 --- --- E15 H13 E14 H12 --- --- C13 G15",
+        #  1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19  20 ↑
+        # 21  22  23  24  25  26  27  28  28  30  31  32  33  34  35  36  37  38  39  40 ↓
         "D13 F15 --- --- D15 G11 D14 F11 --- --- C14 N14 C15 P14 --- ---  K4  A4  J3  B5",
-        #        GND GND                 GND GND                 GND GND
+        #        GND GND                 GND GND                 GND GND                 ↑
     ],
     ["P2",
         "---", # 0
-        #3V3      5V     GND GND                 GND GND                 GND GND
+        #3V3      5V     GND GND                 GND GND                 GND GND         ↓
         "---  R9 ---  P9 --- --- L11 N10 K11 M10 --- --- L12 R10 L13 P10 --- --- M14 R12",
+        #  1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19  20 ↑
+        # 21  22  23  24  25  26  27  28  28  30  31  32  33  34  35  36  37  38  39  40 ↓
         "M15 R11 --- --- K10 P11 J10 P12 --- --- K12 N13 J12 P15 --- ---  H5  H4 P13 R14",
-        #        GND GND                 GND GND                 GND GND
+        #        GND GND                 GND GND                 GND GND                 ↑
     ],
     ["P3",
         "---", # 0
-        #3V3      5V     GND GND                 GND GND                 GND GND
+        #3V3      5V     GND GND                 GND GND                 GND GND         ↓
         "---  R5 ---  P5 --- ---  M7  R6  L7  P6 --- ---  R8  N6  P8  M6 --- ---  K7  R7",
+        #  1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19  20 ↑
+        # 21  22  23  24  25  26  27  28  28  30  31  32  33  34  35  36  37  38  39  40 ↓
         " L8  P7 --- ---  N8  L6  M8  K6 --- ---  M9  A3  L9  B3 --- --- E10  C3 F10  C4",
-        #        GND GND                 GND GND                 GND GND
+        #        GND GND                 GND GND                 GND GND                 ↑
     ],
 ]
 
 # QSE Extensions -----------------------------------------------------------------------------------
 
-def rgmii_ethernet_qse_ios(con):
+def rgmii_ethernet_qse_ios(con, n=""):
     return [
-        ("eth_clocks", 0,
+        (f"eth{n}_clocks", 0,
             Subsignal("tx", Pins(f"{con}:26")),
             Subsignal("rx", Pins(f"{con}:2")),
             IOStandard("1.8_V_LVCMOS"),
         ),
-        ("eth", 0,
+        (f"eth{n}", 0,
             Subsignal("rx_ctl",  Pins(f"{con}:27")),
             Subsignal("rx_data", Pins(f"{con}:21 {con}:19 {con}:15 {con}:13")),
             Subsignal("tx_ctl",  Pins(f"{con}:20")),

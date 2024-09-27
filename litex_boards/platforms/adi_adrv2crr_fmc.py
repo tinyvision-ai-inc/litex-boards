@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 from litex.build.generic_platform import *
-from litex.build.xilinx import XilinxPlatform
+from litex.build.xilinx import XilinxUSPPlatform
 from litex.build.openocd import OpenOCD
 
 _io = [
@@ -477,20 +477,20 @@ _io = [
 # Connectors ---------------------------------------------------------------------------------------
 
 _connectors = [
-    ("pmod", "AW12 AV12 AU13 AU14 AM13 AL13 AK15 AJ1"),
+    ("pmod", "AW12 AV12 AU13 AU14 AM13 AL13 AK15 AJ15"),
 ]
 
 # Platform -----------------------------------------------------------------------------------------
 
-class Platform(XilinxPlatform):
+class Platform(XilinxUSPPlatform):
     default_clk_name   = "clk122m88"
     default_clk_period = 1e9/122.88e6
 
     def __init__(self):
-        XilinxPlatform.__init__(self, "xczu11eg-ffvf1517-2-i", _io, _connectors, toolchain="vivado")
+        XilinxUSPPlatform.__init__(self, "xczu11eg-ffvf1517-2-i", _io, _connectors, toolchain="vivado")
 
     def do_finalize(self, fragment):
-        XilinxPlatform.do_finalize(self, fragment)
+        XilinxUSPPlatform.do_finalize(self, fragment)
 
         # Constraint
         self.add_period_constraint(self.lookup_request("clk122m88", loose=True), 1e9/122.88e6)

@@ -8,8 +8,9 @@
 
 from migen import *
 
+from litex.gen import *
+
 from litex_boards.platforms import digilent_nexys_video
-from litex.build.xilinx.vivado import vivado_build_args, vivado_build_argdict
 
 from litex.soc.cores.clock import *
 from litex.soc.integration.soc_core import *
@@ -24,16 +25,16 @@ from liteeth.phy.s7rgmii import LiteEthPHYRGMII
 
 # CRG ----------------------------------------------------------------------------------------------
 
-class _CRG(Module):
-    def __init__(self, platform, sys_clk_freq, toolchain="vivado", with_sata_pll_refclk=False, with_video_pll=False):
-        self.rst = Signal()
-        self.clock_domains.cd_sys       = ClockDomain()
-        self.clock_domains.cd_sys4x     = ClockDomain()
-        self.clock_domains.cd_sys4x_dqs = ClockDomain()
-        self.clock_domains.cd_idelay    = ClockDomain()
-        self.clock_domains.cd_hdmi      = ClockDomain()
-        self.clock_domains.cd_hdmi5x    = ClockDomain()
-        self.clock_domains.cd_clk100    = ClockDomain()
+class _CRG(LiteXModule):
+    def __init__(self, platform, sys_clk_freq, toolchain="vivado", with_video_pll=False):
+        self.rst          = Signal()
+        self.cd_sys       = ClockDomain()
+        self.cd_sys4x     = ClockDomain()
+        self.cd_sys4x_dqs = ClockDomain()
+        self.cd_idelay    = ClockDomain()
+        self.cd_hdmi      = ClockDomain()
+        self.cd_hdmi5x    = ClockDomain()
+        self.cd_clk100    = ClockDomain()
 
         # # #
 
@@ -43,29 +44,23 @@ class _CRG(Module):
 
         # PLL.
         if toolchain == "vivado":
-            self.submodules.pll = pll = S7MMCM(speedgrade=-1)
+            self.pll = pll = S7MMCM(speedgrade=-1)
         else:
-            self.submodules.pll = pll = S7PLL(speedgrade=-1)
+            self.pll = pll = S7PLL(speedgrade=-1)
         self.comb += pll.reset.eq(~rst_n | self.rst)
         pll.register_clkin(clk100, 100e6)
-        pll.create_clkout(self.cd_sys,       sys_clk_freq)
+        pll.create_clkout(self.cd_sys,       sys_clk_freq, reset_buf="bufg")
         pll.create_clkout(self.cd_sys4x,     4*sys_clk_freq)
         pll.create_clkout(self.cd_sys4x_dqs, 4*sys_clk_freq, phase=90)
         pll.create_clkout(self.cd_idelay,    200e6)
         pll.create_clkout(self.cd_clk100,    100e6)
         platform.add_false_path_constraints(self.cd_sys.clk, pll.clkin) # Ignore sys_clk to pll.clkin path created by SoC's rst.
 
-        self.submodules.idelayctrl = S7IDELAYCTRL(self.cd_idelay)
-
-        # SATA PLL.
-        if with_sata_pll_refclk:
-            self.clock_domains.cd_sata_refclk = ClockDomain()
-            pll.create_clkout(self.cd_sata_refclk, 150e6)
-            platform.add_platform_command("set_property SEVERITY {{WARNING}} [get_drc_checks REQP-49]")
+        self.idelayctrl = S7IDELAYCTRL(self.cd_idelay)
 
         # Video PLL.
         if with_video_pll:
-            self.submodules.video_pll = video_pll = S7MMCM(speedgrade=-1)
+            self.video_pll = video_pll = S7MMCM(speedgrade=-1)
             video_pll.reset.eq(~rst_n | self.rst)
             video_pll.register_clkin(clk100, 100e6)
             video_pll.create_clkout(self.cd_hdmi,   40e6)
@@ -74,15 +69,19 @@ class _CRG(Module):
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, toolchain="vivado", sys_clk_freq=int(100e6), with_ethernet=False,
-                 with_led_chaser=True, with_sata=False, sata_gen="gen2", with_sata_pll_refclk=False, vadj="1.2V", with_video_terminal=False,
-                 with_video_framebuffer=False, **kwargs):
+    def __init__(self, toolchain="vivado", sys_clk_freq=100e6,
+        with_ethernet          = False,
+        with_led_chaser        = True,
+        with_sata              = False, sata_gen="gen2",
+        vadj                   = "1.2V",
+        with_video_terminal    = False,
+        with_video_framebuffer = False,
+        **kwargs):
         platform = digilent_nexys_video.Platform(toolchain=toolchain)
 
         # CRG --------------------------------------------------------------------------------------
         with_video_pll = (with_video_terminal or with_video_framebuffer)
-        self.submodules.crg = _CRG(platform, sys_clk_freq, toolchain,
-            with_sata_pll_refclk = with_sata_pll_refclk,
+        self.crg = _CRG(platform, sys_clk_freq, toolchain,
             with_video_pll       = with_video_pll
         )
 
@@ -91,7 +90,7 @@ class BaseSoC(SoCCore):
 
         # DDR3 SDRAM -------------------------------------------------------------------------------
         if not self.integrated_main_ram_size:
-            self.submodules.ddrphy = s7ddrphy.A7DDRPHY(platform.request("ddram"),
+            self.ddrphy = s7ddrphy.A7DDRPHY(platform.request("ddram"),
                 memtype      = "DDR3",
                 nphases      = 4,
                 sys_clk_freq = sys_clk_freq)
@@ -103,7 +102,7 @@ class BaseSoC(SoCCore):
 
         # Ethernet ---------------------------------------------------------------------------------
         if with_ethernet:
-            self.submodules.ethphy = LiteEthPHYRGMII(
+            self.ethphy = LiteEthPHYRGMII(
                 clock_pads = self.platform.request("eth_clocks"),
                 pads       = self.platform.request("eth"))
             self.add_ethernet(phy=self.ethphy)
@@ -127,9 +126,15 @@ class BaseSoC(SoCCore):
             ]
             platform.add_extension(_sata_io)
 
+            # RefClk, generate 150MHz from PLL.
+            self.cd_sata_refclk = ClockDomain()
+            self.crg.pll.create_clkout(self.cd_sata_refclk, 150e6)
+            sata_refclk = ClockSignal("sata_refclk")
+            platform.add_platform_command("set_property SEVERITY {{WARNING}} [get_drc_checks REQP-49]")
+
             # PHY
-            self.submodules.sata_phy = LiteSATAPHY(platform.device,
-                refclk     = None if not with_sata_pll_refclk else self.crg.cd_sata_refclk.clk,
+            self.sata_phy = LiteSATAPHY(platform.device,
+                refclk     = sata_refclk,
                 pads       = platform.request("fmc2sata"),
                 gen        = sata_gen,
                 clk_freq   = sys_clk_freq,
@@ -140,7 +145,7 @@ class BaseSoC(SoCCore):
 
         # Video ------------------------------------------------------------------------------------
         if with_video_terminal or with_video_framebuffer:
-            self.submodules.videophy = VideoS7HDMIPHY(platform.request("hdmi_out"), clock_domain="hdmi")
+            self.videophy = VideoS7HDMIPHY(platform.request("hdmi_out"), clock_domain="hdmi")
             if with_video_terminal:
                 self.add_video_terminal(phy=self.videophy, timings="800x600@60Hz", clock_domain="hdmi")
             if with_video_framebuffer:
@@ -148,7 +153,7 @@ class BaseSoC(SoCCore):
 
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
-            self.submodules.leds = LedChaser(
+            self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
                 sys_clk_freq = sys_clk_freq)
 
@@ -159,49 +164,39 @@ class BaseSoC(SoCCore):
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on Nexys Video")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--toolchain",              default="vivado",    help="FPGA toolchain (vivado or symbiflow).")
-    target_group.add_argument("--build",                  action="store_true", help="Build design.")
-    target_group.add_argument("--load",                   action="store_true", help="Load bitstream.")
-    target_group.add_argument("--sys-clk-freq",           default=100e6,       help="System clock frequency.")
-    target_group.add_argument("--with-ethernet",          action="store_true", help="Enable Ethernet support.")
-    sdopts = target_group.add_mutually_exclusive_group()
-    sdopts.add_argument("--with-spi-sdcard",        action="store_true", help="Enable SPI-mode SDCard support.")
-    sdopts.add_argument("--with-sdcard",            action="store_true", help="Enable SDCard support.")
-    target_group.add_argument("--with-sata",              action="store_true", help="Enable SATA support (over FMCRAID).")
-    target_group.add_argument("--sata-gen",               default="2",         help="SATA Gen.", choices=["1", "2"])
-    target_group.add_argument("--with-sata-pll-refclk",   action="store_true", help="Generate SATA RefClk from PLL.")
-    target_group.add_argument("--vadj",                   default="1.2V",      help="FMC VADJ value.", choices=["1.2V", "1.8V", "2.5V", "3.3V"])
-    viopts = target_group.add_mutually_exclusive_group()
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=digilent_nexys_video.Platform, description="LiteX SoC on Nexys Video.")
+    parser.add_target_argument("--sys-clk-freq",  default=100e6, type=float, help="System clock frequency.")
+    parser.add_target_argument("--with-ethernet", action="store_true",       help="Enable Ethernet support.")
+    sdopts = parser.target_group.add_mutually_exclusive_group()
+    sdopts.add_argument("--with-spi-sdcard", action="store_true", help="Enable SPI-mode SDCard support.")
+    sdopts.add_argument("--with-sdcard",     action="store_true", help="Enable SDCard support.")
+    parser.add_target_argument("--with-sata",            action="store_true", help="Enable SATA support (over FMCRAID).")
+    parser.add_target_argument("--sata-gen",             default="2",         help="SATA Gen.", choices=["1", "2"])
+    parser.add_target_argument("--vadj",                 default="1.2V",      help="FMC VADJ value.", choices=["1.2V", "1.8V", "2.5V", "3.3V"])
+    viopts = parser.target_group.add_mutually_exclusive_group()
     viopts.add_argument("--with-video-terminal",    action="store_true", help="Enable Video Terminal (HDMI).")
     viopts.add_argument("--with-video-framebuffer", action="store_true", help="Enable Video Framebuffer (HDMI).")
-    builder_args(parser)
-    soc_core_args(parser)
-    vivado_build_args(parser)
     args = parser.parse_args()
 
     soc = BaseSoC(
         toolchain              = args.toolchain,
-        sys_clk_freq           = int(float(args.sys_clk_freq)),
+        sys_clk_freq           = args.sys_clk_freq,
         with_ethernet          = args.with_ethernet,
         with_sata              = args.with_sata,
         sata_gen               = "gen" + args.sata_gen,
-        with_sata_pll_refclk   = args.with_sata_pll_refclk,
         vadj                   = args.vadj,
         with_video_terminal    = args.with_video_terminal,
         with_video_framebuffer = args.with_video_framebuffer,
-        **soc_core_argdict(args)
+        **parser.soc_argdict
     )
     if args.with_spi_sdcard:
         soc.add_spi_sdcard()
     if args.with_sdcard:
         soc.add_sdcard()
-    builder = Builder(soc, **builder_argdict(args))
-    builder_kwargs = vivado_build_argdict(args) if args.toolchain == "vivado" else {}
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build(**builder_kwargs)
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()

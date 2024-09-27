@@ -11,6 +11,8 @@ import importlib
 
 from migen import *
 
+from litex.gen import *
+
 from litex.build.io import CRG
 
 from litex.soc.integration.soc_core import *
@@ -25,7 +27,7 @@ class BaseSoC(SoCCore):
         sys_clk_freq = int(1e9/platform.default_clk_period)
 
         # CRG --------------------------------------------------------------------------------------
-        self.submodules.crg = CRG(platform.request(platform.default_clk_name))
+        self.crg = CRG(platform.request(platform.default_clk_name))
 
         # SoCCore ----------------------------------------------------------------------------------
         SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX Simple SoC", **kwargs)
@@ -33,7 +35,7 @@ class BaseSoC(SoCCore):
         # Leds -------------------------------------------------------------------------------------
         try:
             if with_led_chaser:
-                self.submodules.leds = LedChaser(
+                self.leds = LedChaser(
                     pads         = platform.request_all("user_led"),
                     sys_clk_freq = sys_clk_freq)
         except:
@@ -42,8 +44,8 @@ class BaseSoC(SoCCore):
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="Generic LiteX SoC")
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(description="Generic LiteX SoC")
     target_group = parser.add_argument_group(title="Target options")
     target_group.add_argument("platform",                             help="Module name of the platform to build for.")
     target_group.add_argument("--build",         action="store_true", help="Build design.")

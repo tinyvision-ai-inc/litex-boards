@@ -9,14 +9,15 @@
 from migen import *
 from migen.genlib.resetsync import AsyncResetSynchronizer
 
-from litex_boards.platforms import efinix_titanium_ti60_f225_dev_kit
+from litex.gen import *
 
-from litex.build.generic_platform import *
+from litex_boards.platforms import efinix_titanium_ti60_f225_dev_kit
 
 from litex.soc.cores.clock import *
 from litex.soc.integration.soc_core import *
 from litex.soc.integration.builder import *
 from litex.soc.integration.soc import SoCRegion
+from litex.soc.interconnect import wishbone
 
 from litex.soc.cores.hyperbus import HyperRAM
 
@@ -24,9 +25,10 @@ from liteeth.phy.titaniumrgmii import LiteEthPHYRGMII
 
 # CRG ----------------------------------------------------------------------------------------------
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq):
-        self.clock_domains.cd_sys = ClockDomain()
+        self.rst    = Signal()
+        self.cd_sys = ClockDomain()
 
         # # #
 
@@ -34,8 +36,8 @@ class _CRG(Module):
         rst_n = platform.request("user_btn", 0)
 
         # PLL
-        self.submodules.pll = pll = TITANIUMPLL(platform)
-        self.comb += pll.reset.eq(~rst_n)
+        self.pll = pll = TITANIUMPLL(platform)
+        self.comb += pll.reset.eq(~rst_n | self.rst)
         pll.register_clkin(clk25, 25e6)
         # You can use CLKOUT0 only for clocks with a maximum frequency of 4x
         # (integer) of the reference clock. If all your system clocks do not fall within
@@ -47,7 +49,7 @@ class _CRG(Module):
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, sys_clk_freq=int(200e6),
+    def __init__(self, sys_clk_freq=200e6,
         with_spi_flash = False,
         with_hyperram  = False,
         with_ethernet  = False,
@@ -58,7 +60,7 @@ class BaseSoC(SoCCore):
         platform = efinix_titanium_ti60_f225_dev_kit.Platform()
 
         # CRG --------------------------------------------------------------------------------------
-        self.submodules.crg = _CRG(platform, sys_clk_freq)
+        self.crg = _CRG(platform, sys_clk_freq)
 
         # SoCCore ----------------------------------------------------------------------------------
         SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX SoC on Efinix Titanium Ti60 F225 Dev Kit", **kwargs)
@@ -71,14 +73,34 @@ class BaseSoC(SoCCore):
 
         # HyperRAM ---------------------------------------------------------------------------------
         if with_hyperram:
-            self.submodules.hyperram = HyperRAM(platform.request("hyperram"), latency=7, sys_clk_freq=sys_clk_freq)
-            self.bus.add_slave("main_ram", slave=self.hyperram.bus, region=SoCRegion(origin=0x40000000, size=32*1024*1024))
+            # HyperRAM Parameters.
+            hyperram_device     = "W958D6NW"
+            hyperram_size       = 32*1024*1024
+            hyperram_cache_size = 16*1024
+
+            # HyperRAM Bus/Slave Interface.
+            hyperram_bus = wishbone.Interface(data_width=32, address_width=32, addressing="word")
+            self.bus.add_slave(name="main_ram", slave=hyperram_bus, region=SoCRegion(origin=0x40000000, size=hyperram_size))
+
+            # HyperRAM L2 Cache.
+            hyperram_cache = wishbone.Cache(
+                cachesize = hyperram_cache_size//4,
+                master    = hyperram_bus,
+                slave     = wishbone.Interface(data_width=32, address_width=32, addressing="word")
+            )
+            hyperram_cache = FullMemoryWE()(hyperram_cache)
+            self.hyperram_cache = hyperram_cache
+            self.add_config("L2_SIZE", hyperram_cache_size)
+
+            # HyperRAM Core.
+            self.hyperram = HyperRAM(platform.request("hyperram"), latency=7, latency_mode="variable", sys_clk_freq=sys_clk_freq)
+            self.comb += self.hyperram_cache.slave.connect(self.hyperram.bus)
 
         # Ethernet / Etherbone ---------------------------------------------------------------------
         if with_ethernet or with_etherbone:
             platform.add_extension(efinix_titanium_ti60_f225_dev_kit.rgmii_ethernet_qse_ios("P1"))
             pads = platform.request("eth", eth_phy)
-            self.submodules.ethphy = LiteEthPHYRGMII(
+            self.ethphy = LiteEthPHYRGMII(
                 platform           = platform,
                 clock_pads         = platform.request("eth_clocks", eth_phy),
                 pads               = pads,
@@ -88,71 +110,41 @@ class BaseSoC(SoCCore):
             if with_etherbone:
                 self.add_etherbone(phy=self.ethphy)
 
-            # FIXME: Avoid this.
-            platform.toolchain.excluded_ios.append(platform.lookup_request("eth_clocks").tx)
-            platform.toolchain.excluded_ios.append(platform.lookup_request("eth_clocks").rx)
-            platform.toolchain.excluded_ios.append(platform.lookup_request("eth").tx_data)
-            platform.toolchain.excluded_ios.append(platform.lookup_request("eth").tx_ctl)
-            platform.toolchain.excluded_ios.append(platform.lookup_request("eth").rx_data)
-            platform.toolchain.excluded_ios.append(platform.lookup_request("eth").mdio)
-
-            # Extension board on P2 + External Logic Analyzer.
-            _pmod_ios = [
-                ("debug", 0, Pins(
-                    "L11", # GPIOR_P_15
-                    "K11", # GPIOR_N_15
-                    "N10", # GPIOR_P_12
-                    "M10", # GPIOR_N_12
-                    ),
-                    IOStandard("1.8_V_LVCMOS")
-                ),
-            ]
-            platform.add_extension(_pmod_ios)
-            debug = platform.request("debug")
-            self.comb += debug[0].eq(self.ethphy.tx.sink.valid)
-            self.comb += debug[1].eq(self.ethphy.tx.sink.data[0])
-            self.comb += debug[2].eq(self.ethphy.tx.sink.data[1])
-
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on Efinix Titanium Ti60 F225 Dev Kit")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",          action="store_true", help="Build design.")
-    target_group.add_argument("--load",           action="store_true", help="Load bitstream.")
-    target_group.add_argument("--flash",          action="store_true", help="Flash bitstream.")
-    target_group.add_argument("--sys-clk-freq",   default=200e6,       help="System clock frequency.")
-    target_group.add_argument("--with-spi-flash", action="store_true", help="Enable SPI Flash (MMAPed).")
-    target_group.add_argument("--with-hyperram",  action="store_true", help="Enable HyperRAM.")
-    sdopts = target_group.add_mutually_exclusive_group()
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=efinix_titanium_ti60_f225_dev_kit.Platform, description="LiteX SoC on Efinix Titanium Ti60 F225 Dev Kit.")
+    parser.add_target_argument("--flash",          action="store_true",       help="Flash bitstream.")
+    parser.add_target_argument("--sys-clk-freq",   default=200e6, type=float, help="System clock frequency.")
+    parser.add_target_argument("--with-spi-flash", action="store_true",       help="Enable SPI Flash (MMAPed).")
+    parser.add_target_argument("--with-hyperram",  action="store_true",       help="Enable HyperRAM.")
+    sdopts = parser.target_group.add_mutually_exclusive_group()
     sdopts.add_argument("--with-spi-sdcard",      action="store_true", help="Enable SPI-mode SDCard support.")
     sdopts.add_argument("--with-sdcard",          action="store_true", help="Enable SDCard support.")
-    ethopts = target_group.add_mutually_exclusive_group()
-    ethopts.add_argument("--with-ethernet",        action="store_true",              help="Enable Ethernet support.")
-    ethopts.add_argument("--with-etherbone",       action="store_true",              help="Enable Etherbone support.")
-    target_group.add_argument("--eth-ip",          default="192.168.1.50", type=str, help="Ethernet/Etherbone IP address.")
-    target_group.add_argument("--eth-phy",         default=0, type=int,              help="Ethernet PHY: 0 (default) or 1.")
-    builder_args(parser)
-    soc_core_args(parser)
+    ethopts = parser.target_group.add_mutually_exclusive_group()
+    ethopts.add_argument("--with-ethernet",  action="store_true",    help="Enable Ethernet support.")
+    ethopts.add_argument("--with-etherbone", action="store_true",    help="Enable Etherbone support.")
+    parser.add_target_argument("--eth-ip",   default="192.168.1.50", help="Ethernet/Etherbone IP address.")
+    parser.add_target_argument("--eth-phy",  default=0, type=int,    help="Ethernet PHY: 0 (default) or 1.")
     args = parser.parse_args()
 
     soc = BaseSoC(
-        sys_clk_freq   = int(float(args.sys_clk_freq)),
+        sys_clk_freq   = args.sys_clk_freq,
         with_spi_flash = args.with_spi_flash,
         with_hyperram  = args.with_hyperram,
         with_ethernet  = args.with_ethernet,
         with_etherbone = args.with_etherbone,
         eth_ip         = args.eth_ip,
         eth_phy        = args.eth_phy,
-         **soc_core_argdict(args))
+         **parser.soc_argdict)
     if args.with_spi_sdcard:
         soc.add_spi_sdcard()
     if args.with_sdcard:
         soc.add_sdcard()
-    builder = Builder(soc, **builder_argdict(args))
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build()
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()

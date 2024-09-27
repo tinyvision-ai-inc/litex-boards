@@ -19,9 +19,10 @@
 
 import os
 import sys
-import argparse
 
 from migen import *
+
+from litex.gen import *
 
 from litex.build.io import CRG
 
@@ -35,14 +36,13 @@ from litex.soc.cores.led import LedChaser
 
 from migen.genlib.resetsync import AsyncResetSynchronizer
 
-kB = 1024
-mB = 1024*kB
+# _CRG ---------------------------------------------------------------------------------------------
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq):
-        self.rst = Signal()
-        self.clock_domains.cd_sys    = ClockDomain()
-        self.clock_domains.cd_por    = ClockDomain(reset_less=True)
+        self.rst    = Signal()
+        self.cd_sys = ClockDomain()
+        self.cd_por = ClockDomain(reset_less=True)
 
         # Clk/Rst
         clk100 = platform.request("clk100")
@@ -56,7 +56,7 @@ class _CRG(Module):
         self.sync.por += If(~por_done, por_count.eq(por_count - 1))
 
         # Sys Clk
-        self.submodules.pll = pll = iCE40PLL()
+        self.pll = pll = iCE40PLL()
         pll.register_clkin(clk100, 100e6)
         pll.create_clkout(self.cd_sys, sys_clk_freq, with_reset=False)
         self.specials += AsyncResetSynchronizer(self.cd_sys, ~por_done | ~pll.locked)
@@ -68,12 +68,12 @@ class _CRG(Module):
 
 class BaseSoC(SoCCore):
     mem_map = {**SoCCore.mem_map, **{"spiflash": 0x20000000}}
-    def __init__(self, bios_flash_offset, sys_clk_freq=int(100e6), with_led_chaser=True, **kwargs):
+    def __init__(self, bios_flash_offset, sys_clk_freq=100e6, with_led_chaser=True, **kwargs):
         platform = machdyne_krote.Platform()
 
         # Disable Integrated ROM since too large for iCE40.
         kwargs["integrated_rom_size"]  = 0
-        kwargs["integrated_sram_size"]  = 4*kB
+        kwargs["integrated_sram_size"]  = 4 * KILOBYTE
 
         # Set CPU variant / reset address
         kwargs["cpu_reset_address"] = self.mem_map["spiflash"] + bios_flash_offset
@@ -84,7 +84,7 @@ class BaseSoC(SoCCore):
             **kwargs)
 
         # CRG --------------------------------------------------------------------------------------
-        self.submodules.crg = _CRG(platform, sys_clk_freq)
+        self.crg = _CRG(platform, sys_clk_freq)
 
         # SPI Flash --------------------------------------------------------------------------------
         from litespi.modules import W25Q32
@@ -94,36 +94,34 @@ class BaseSoC(SoCCore):
         # Add ROM linker region --------------------------------------------------------------------
         self.bus.add_region("rom", SoCRegion(
             origin = self.mem_map["spiflash"] + bios_flash_offset,
-            size   = 32*kB,
+            size   = 32 * KILOBYTE,
             linker = True)
         )
 
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
-            self.submodules.leds = LedChaser(
+            self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
                 sys_clk_freq = sys_clk_freq)
 
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="LiteX SoC on Kr\xf6te")
-    parser.add_argument("--build",             action="store_true", help="Build bitstream")
-    parser.add_argument("--bios-flash-offset", default="0x021000",  help="BIOS offset in SPI Flash (default: 0x21000)")
-    parser.add_argument("--sys-clk-freq",      default=50e6,        help="System clock frequency (default: 50MHz)")
-    parser.add_argument("--with-led-chaser", action="store_true", help="Enable LED Chaser.")
-    builder_args(parser)
-    soc_core_args(parser)
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=machdyne_krote.Platform, description="LiteX SoC on Kr\xf6te.")
+    parser.add_argument("--bios-flash-offset", default="0x021000",       help="BIOS offset in SPI Flash (default: 0x21000)")
+    parser.add_argument("--sys-clk-freq",      default=50e6, type=float, help="System clock frequency (default: 50MHz)")
+    parser.add_argument("--with-led-chaser", action="store_true",        help="Enable LED Chaser.")
     args = parser.parse_args()
 
     soc = BaseSoC(
          bios_flash_offset = int(args.bios_flash_offset, 0),
-         sys_clk_freq      = int(float(args.sys_clk_freq)),
-         **soc_core_argdict(args)
+         sys_clk_freq      = args.sys_clk_freq,
+         **parser.soc_argdict
     )
-    builder = Builder(soc, **builder_argdict(args))
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build()
+        builder.build(**parser.toolchain_argdict)
 
 if __name__ == "__main__":
     main()

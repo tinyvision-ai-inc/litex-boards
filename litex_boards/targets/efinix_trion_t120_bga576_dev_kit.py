@@ -10,6 +10,8 @@
 from migen import *
 from migen.genlib.resetsync import AsyncResetSynchronizer
 
+from litex.gen import *
+
 from litex_boards.platforms import efinix_trion_t120_bga576_dev_kit
 
 from litex.soc.cores.clock import *
@@ -23,9 +25,10 @@ from liteeth.phy.trionrgmii import LiteEthPHYRGMII
 
 # CRG ----------------------------------------------------------------------------------------------
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq):
-        self.clock_domains.cd_sys = ClockDomain()
+        #self.rst    = Signal()
+        self.cd_sys = ClockDomain()
 
         # # #
 
@@ -34,7 +37,8 @@ class _CRG(Module):
 
 
         # PLL
-        self.submodules.pll = pll = TRIONPLL(platform)
+        self.pll = pll = TRIONPLL(platform)
+        #self.comb += pll.reset.eq(~rst_n | self.rst)
         self.comb += pll.reset.eq(~rst_n)
         pll.register_clkin(clk40, 40e6)
         pll.create_clkout(self.cd_sys, sys_clk_freq, with_reset=True, name="axi_clk")
@@ -42,11 +46,12 @@ class _CRG(Module):
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, sys_clk_freq=int(75e6),
+    def __init__(self, sys_clk_freq=75e6,
         with_spi_flash  = False,
         with_ethernet   = False,
         with_etherbone  = False,
         eth_phy         = 0,
+        eth_rmii_pmod   = True,
         eth_ip          = "192.168.1.50",
         with_led_chaser = True,
         **kwargs):
@@ -57,7 +62,7 @@ class BaseSoC(SoCCore):
         kwargs["uart_name"] = "usb_uart"
 
         # CRG --------------------------------------------------------------------------------------
-        self.submodules.crg = _CRG(platform, sys_clk_freq)
+        self.crg = _CRG(platform, sys_clk_freq)
 
         # SoCCore ----------------------------------------------------------------------------------
         SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX SoC on Efinix Trion T120 BGA576 Dev Kit", **kwargs)
@@ -67,11 +72,10 @@ class BaseSoC(SoCCore):
             from litespi.modules import W25Q128JV
             from litespi.opcodes import SpiNorFlashOpCodes as Codes
             self.add_spi_flash(mode="4x", module=W25Q128JV(Codes.READ_1_1_4), with_master=True)
-            platform.toolchain.excluded_ios.append(platform.lookup_request("spiflash4x").dq)
 
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
-            self.submodules.leds = LedChaser(
+            self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
                 sys_clk_freq = sys_clk_freq)
 
@@ -83,26 +87,48 @@ class BaseSoC(SoCCore):
             Subsignal("scl",   Pins("V11")),
             IOStandard("3.3_V_LVTTL_/_LVCMOS"),
         )])
-        self.submodules.i2c = I2CMaster(pads=platform.request("i2c"))
+        self.i2c = I2CMaster(pads=platform.request("i2c"))
 
         # Ethernet / Etherbone ---------------------------------------------------------------------
         if with_ethernet or with_etherbone:
-            self.submodules.ethphy = LiteEthPHYRGMII(
-                platform           = platform,
-                clock_pads         = platform.request("eth_clocks", eth_phy),
-                pads               = platform.request("eth", eth_phy),
-                with_hw_init_reset = False)
+            # Use board's Ethernet PHYs.
+            if not eth_rmii_pmod:
+                self.ethphy = LiteEthPHYRGMII(
+                    platform           = platform,
+                    clock_pads         = platform.request("eth_clocks", eth_phy),
+                    pads               = platform.request("eth", eth_phy),
+                    with_hw_init_reset = False)
+            # Use Ethernet RMII PMOD.
+            else:
+                from litex.build.generic_platform import Pins, Subsignal, IOStandard
+                def eth_lan8720_rmii_pmod_io(pmod):
+                    # Lan8020 RMII PHY "PMOD": To be used as a PMOD, MDIO should be disconnected and TX1 connected to PMOD8 IO.
+                    return [
+                        ("eth_rmii_clocks", 0,
+                            Subsignal("ref_clk", Pins(f"{pmod}:6")),
+                            IOStandard("3.3_V_LVTTL_/_LVCMOS"),
+                        ),
+                        ("eth_rmii", 0,
+                            Subsignal("rx_data", Pins(f"{pmod}:5 {pmod}:1")),
+                            Subsignal("crs_dv",  Pins(f"{pmod}:2")),
+                            Subsignal("tx_en",   Pins(f"{pmod}:4")),
+                            Subsignal("tx_data", Pins(f"{pmod}:0 {pmod}:7")),
+                            IOStandard("3.3_V_LVTTL_/_LVCMOS")
+                        ),
+                    ]
+                platform.add_extension(eth_lan8720_rmii_pmod_io("pmod_d"))
+
+                from liteeth.phy.rmii import LiteEthPHYRMII
+                self.ethphy = LiteEthPHYRMII(
+                    clock_pads = platform.request("eth_rmii_clocks"),
+                    pads       = platform.request("eth_rmii"),
+                    refclk_cd  = None
+                )
+
             if with_ethernet:
                 self.add_ethernet(phy=self.ethphy, software_debug=False)
             if with_etherbone:
                 self.add_etherbone(phy=self.ethphy)
-
-            # FIXME: Avoid this.
-            platform.toolchain.excluded_ios.append(platform.lookup_request("eth_clocks").tx)
-            platform.toolchain.excluded_ios.append(platform.lookup_request("eth_clocks").rx)
-            platform.toolchain.excluded_ios.append(platform.lookup_request("eth").tx_data)
-            platform.toolchain.excluded_ios.append(platform.lookup_request("eth").rx_data)
-            platform.toolchain.excluded_ios.append(platform.lookup_request("eth").mdio)
 
         # LPDDR3 SDRAM -----------------------------------------------------------------------------
         if not self.integrated_main_ram_size:
@@ -325,44 +351,39 @@ calc_result = design.auto_calc_pll_clock("dram_pll", {"CLKOUT0_FREQ": "400.0"})
                 self.submodules += axi.AXILite2AXI(axi_lite_port, axi_port)
                 self.bus.add_slave(f"target{n}", axi_lite_port, SoCRegion(origin=0x4000_0000 + 0x1000_0000*n, size=0x1000_0000)) # 256MB.
 
-        # Use DRAM's target0 port as Main Ram  -----------------------------------------------------
-        self.bus.add_region("main_ram", SoCRegion(
-            origin = 0x4000_0000,
-            size   = 0x1000_0000, # 256MB.
-            linker = True)
-        )
+            # Use DRAM's target0 port as Main Ram  -----------------------------------------------------
+            self.bus.add_region("main_ram", SoCRegion(
+                origin = 0x4000_0000,
+                size   = 0x1000_0000, # 256MB.
+                linker = True)
+            )
 
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on Efinix Trion T120 BGA576 Dev Kit")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",          action="store_true", help="Build design.")
-    target_group.add_argument("--load",           action="store_true", help="Load bitstream.")
-    target_group.add_argument("--flash",          action="store_true", help="Flash bitstream.")
-    target_group.add_argument("--sys-clk-freq",   default=75e6,        help="System clock frequency.")
-    target_group.add_argument("--with-spi-flash", action="store_true", help="Enable SPI Flash (MMAPed).")
-    ethopts = target_group.add_mutually_exclusive_group()
-    ethopts.add_argument("--with-ethernet",  action="store_true",              help="Enable Ethernet support.")
-    ethopts.add_argument("--with-etherbone", action="store_true",              help="Enable Etherbone support.")
-    target_group.add_argument("--eth-ip",          default="192.168.1.50", type=str, help="Ethernet/Etherbone IP address.")
-    target_group.add_argument("--eth-phy",         default=0, type=int,              help="Ethernet PHY: 0 (default) or 1.")
-    builder_args(parser)
-    soc_core_args(parser)
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=efinix_trion_t120_bga576_dev_kit.Platform, description="LiteX SoC on Efinix Trion T120 BGA576 Dev Kit.")
+    parser.add_target_argument("--flash",          action="store_true",      help="Flash bitstream.")
+    parser.add_target_argument("--sys-clk-freq",   default=75e6, type=float, help="System clock frequency.")
+    parser.add_target_argument("--with-spi-flash", action="store_true",      help="Enable SPI Flash (MMAPed).")
+    ethopts = parser.target_group.add_mutually_exclusive_group()
+    ethopts.add_argument("--with-ethernet",  action="store_true",    help="Enable Ethernet support.")
+    ethopts.add_argument("--with-etherbone", action="store_true",    help="Enable Etherbone support.")
+    parser.add_target_argument("--eth-ip",   default="192.168.1.50", help="Ethernet/Etherbone IP address.")
+    parser.add_target_argument("--eth-phy",  default=0, type=int,    help="Ethernet PHY: 0 (default) or 1.")
     args = parser.parse_args()
 
     soc = BaseSoC(
-        sys_clk_freq   = int(float(args.sys_clk_freq)),
+        sys_clk_freq   = args.sys_clk_freq,
         with_spi_flash = args.with_spi_flash,
         with_ethernet  = args.with_ethernet,
         with_etherbone = args.with_etherbone,
         eth_ip         = args.eth_ip,
         eth_phy        = args.eth_phy,
-        **soc_core_argdict(args))
-    builder = Builder(soc, **builder_argdict(args))
+        **parser.soc_argdict)
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build()
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()

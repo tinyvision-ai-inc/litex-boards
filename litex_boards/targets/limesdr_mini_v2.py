@@ -11,11 +11,16 @@
 # litex_server --jtag --jtag-config=openocd_limesdr_mini_v2.cfg
 # litex_term crossover
 
+# loading a demo
+# ./limesdr_mini_v2.py --integrated-main-ram-size 0x8000 --load --build --uart-name=jtag_uart
+# litex_bare_metal_demo --build-path build/limesdr_mini_v2
+# litex_term jtag --jtag-config=openocd_limesdr_mini_v2.cfg --kernel demo.bin
+
 from migen import *
 
-from litex_boards.platforms import limesdr_mini_v2
+from litex.gen import *
 
-from litex.build.lattice.trellis import trellis_args, trellis_argdict
+from litex_boards.platforms import limesdr_mini_v2
 
 from litex.soc.cores.clock import *
 from litex.soc.interconnect.csr import *
@@ -31,11 +36,11 @@ from litescope import LiteScopeAnalyzer
 
 # CRG ----------------------------------------------------------------------------------------------
 
-class _CRG(Module):
+class _CRG(LiteXModule):
     def __init__(self, platform, sys_clk_freq):
-        self.rst = Signal()
-        self.clock_domains.cd_sys = ClockDomain()
-        self.clock_domains.cd_usb = ClockDomain()
+        self.rst    = Signal()
+        self.cd_sys = ClockDomain()
+        self.cd_usb = ClockDomain()
 
         # # #
 
@@ -43,7 +48,7 @@ class _CRG(Module):
         clk40 = platform.request("clk40")
 
         # PLL.
-        self.submodules.pll = pll = ECP5PLL()
+        self.pll = pll = ECP5PLL()
         self.comb += pll.reset.eq(self.rst)
         pll.register_clkin(clk40, 40e6)
         pll.create_clkout(self.cd_sys, sys_clk_freq)
@@ -53,7 +58,7 @@ class _CRG(Module):
 
 # BoardInfo ----------------------------------------------------------------------------------------
 
-class BoardInfo(Module, AutoCSR):
+class BoardInfo(LiteXModule, AutoCSR):
     def __init__(self, revision_pads):
         self.revision = CSRStorage(fields=[
             CSRField("hardware", size=4, description="Hardware Revision."),
@@ -68,34 +73,33 @@ class BoardInfo(Module, AutoCSR):
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, sys_clk_freq=int(80e6), toolchain="trellis",
+    def __init__(self, sys_clk_freq=80e6, toolchain="trellis",
         with_usb_fifo   = True, with_usb_fifo_loopback=False,
         with_led_chaser = True,
         **kwargs):
         platform = limesdr_mini_v2.Platform(toolchain=toolchain)
 
         # SoCCore ----------------------------------------------------------------------------------
-        kwargs["uart_name"] = "crossover"
+        if kwargs["uart_name"] != "jtag_uart":
+            kwargs["uart_name"]     = "crossover"
+            kwargs["with_jtagbone"] = True
         SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX SoC on LimeSDR-Mini-V2", **kwargs)
 
-        # JTAGBone ---------------------------------------------------------------------------------
-        self.add_jtagbone()
-
         # CRG --------------------------------------------------------------------------------------
-        self.submodules.crg = _CRG(platform, sys_clk_freq)
+        self.crg = _CRG(platform, sys_clk_freq)
 
         # Info -------------------------------------------------------------------------------------
-        self.submodules.info = BoardInfo(platform.request("revision"))
+        self.info = BoardInfo(platform.request("revision"))
 
         # I2C Bus ----------------------------------------------------------------------------------
         # - Temperature Sensor (LM72   @ 0x48).
         # - Eeprom             (M24128 @ 0x50) / Not populated.
-        self.submodules.i2c = I2CMaster(platform.request("i2c"))
+        self.i2c = I2CMaster(platform.request("i2c"))
 
         # USB-FIFO ---------------------------------------------------------------------------------
         if with_usb_fifo:
             usb_pads = platform.request("usb_fifo")
-            self.submodules.usb_phy = usb_phy = FT245PHYSynchronous(
+            self.usb_phy = usb_phy = FT245PHYSynchronous(
                 pads       = usb_pads,
                 clk_freq   = sys_clk_freq,
                 fifo_depth = 8,
@@ -113,7 +117,7 @@ class BaseSoC(SoCCore):
                 self.comb += usb_phy.source.ready.eq(1) # Accept incoming stream to validate Host -> FPGA.
 
             analyzer_probes = usb_phy.get_litescope_probes()
-            self.submodules.analyzer = LiteScopeAnalyzer(analyzer_probes,
+            self.analyzer = LiteScopeAnalyzer(analyzer_probes,
                 depth        = 512,
                 clock_domain = "usb",
                 samplerate   = sys_clk_freq,
@@ -131,32 +135,24 @@ class BaseSoC(SoCCore):
             leds_r = Signal(4)
             self.comb += platform.request_all("led_g_n").eq(~leds_g)
             self.comb += platform.request_all("led_r_n").eq(~leds_r)
-            self.submodules.leds = LedChaser(Cat(leds_g, leds_r), sys_clk_freq)
+            self.leds = LedChaser(Cat(leds_g, leds_r), sys_clk_freq)
 
 # Build --------------------------------------------------------------------------------------------
 
 def main():
-    from litex.soc.integration.soc import LiteXSoCArgumentParser
-    parser = LiteXSoCArgumentParser(description="LiteX SoC on LimeSDR-Mini-V2")
-    target_group = parser.add_argument_group(title="Target options")
-    target_group.add_argument("--build",        action="store_true", help="Build design.")
-    target_group.add_argument("--load",         action="store_true", help="Load bitstream.")
-    target_group.add_argument("--toolchain",    default="trellis",   help="FPGA toolchain (trellis or diamond).")
-    target_group.add_argument("--sys-clk-freq", default=80e6,        help="System clock frequency.")
-    builder_args(parser)
-    soc_core_args(parser)
-    trellis_args(parser)
+    from litex.build.parser import LiteXArgumentParser
+    parser = LiteXArgumentParser(platform=limesdr_mini_v2.Platform, description="LiteX SoC on LimeSDR-Mini-V2.")
+    parser.add_target_argument("--sys-clk-freq", default=80e6, type=float, help="System clock frequency.")
     args = parser.parse_args()
 
     soc = BaseSoC(
-        sys_clk_freq = int(float(args.sys_clk_freq)),
+        sys_clk_freq = args.sys_clk_freq,
         toolchain    = args.toolchain,
-        **soc_core_argdict(args)
+        **parser.soc_argdict
     )
-    builder = Builder(soc, **builder_argdict(args))
-    builder_kargs = trellis_argdict(args) if args.toolchain == "trellis" else {}
+    builder = Builder(soc, **parser.builder_argdict)
     if args.build:
-        builder.build(**builder_kargs)
+        builder.build(**parser.toolchain_argdict)
 
     if args.load:
         prog = soc.platform.create_programmer()

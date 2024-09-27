@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 from litex.build.generic_platform import *
-from litex.build.xilinx import XilinxPlatform, VivadoProgrammer
+from litex.build.xilinx import Xilinx7SeriesPlatform, VivadoProgrammer
 from litex.build.openocd import OpenOCD
 
 # IOs ----------------------------------------------------------------------------------------------
@@ -65,21 +65,32 @@ _io = [
     ),
 
     # VGA
-     ("vga", 0,
+    ("vga", 0,
         Subsignal("hsync_n", Pins("P19")),
-        Subsignal("vsync_n", Pins("R18")),
+        Subsignal("vsync_n", Pins("R19")),
         Subsignal("r", Pins("G19 H19 J19 N19")),
         Subsignal("g", Pins("J17 H17 G17 D17")),
         Subsignal("b", Pins("N18 L18 K18 J18")),
         IOStandard("LVCMOS33")
     ),
-    
+
     # USB PS/2
     ("usbhost", 0,
        Subsignal("ps2_clk", Pins("B6")),
        Subsignal("ps2_data", Pins("A6")),
-       IOStandard("LVCMOS33"))
+       IOStandard("LVCMOS33")
+    ),
 
+
+    ("gpio", 0,
+       Subsignal("a", Pins("J1   L2  J2  G2  H1  K2  H2  G3")),
+       Subsignal("b", Pins("A14 A16 B15 B16 A15 A17 C15 C16")),
+       Subsignal("c0", Pins("K17")),
+       Subsignal("c1", Pins("M18")),
+       Subsignal("c6", Pins("L17")),
+       Subsignal("c7", Pins("M19")),
+       Subsignal("xadc", Pins("J3  L3  M2  N2  K3  M3  M1  N1")),
+       IOStandard("LVCMOS33"))
 ]
 
 # Connectors ---------------------------------------------------------------------------------------
@@ -117,16 +128,16 @@ def sdcard_pmod_io(pmod):
 ]
 _sdcard_pmod_io = sdcard_pmod_io("pmoda") # SDCARD PMOD on JD.
 
-class Platform(XilinxPlatform):
+class Platform(Xilinx7SeriesPlatform):
     default_clk_name   = "clk100"
     default_clk_period = 1e9/100e6
 
     def __init__(self, toolchain="vivado"):
-        XilinxPlatform.__init__(self, "xc7a35t-CPG236-1", _io, _connectors, toolchain=toolchain)
+        Xilinx7SeriesPlatform.__init__(self, "xc7a35t-CPG236-1", _io, _connectors, toolchain=toolchain)
 
     def create_programmer(self):
         return OpenOCD("openocd_xc7_ft2232.cfg", "bscan_spi_xc7a35t.bit")
     
     def do_finalize(self, fragment):
-        XilinxPlatform.do_finalize(self, fragment)
+        Xilinx7SeriesPlatform.do_finalize(self, fragment)
         self.add_period_constraint(self.lookup_request("clk100", loose=True), 1e9/100e6)

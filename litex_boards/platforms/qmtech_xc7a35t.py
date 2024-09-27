@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 from litex.build.generic_platform import Pins, Subsignal, IOStandard, Misc
-from litex.build.xilinx import XilinxPlatform
+from litex.build.xilinx import Xilinx7SeriesPlatform
 from litex.build.openocd import OpenOCD
 
 # IOs ----------------------------------------------------------------------------------------------
@@ -134,7 +134,7 @@ _connectors = [
 
 # Platform -----------------------------------------------------------------------------------------
 
-class Platform(XilinxPlatform):
+class Platform(Xilinx7SeriesPlatform):
     default_clk_name   = "clk50"
     default_clk_period = 1e9/50e6
 
@@ -145,7 +145,7 @@ class Platform(XilinxPlatform):
         ("cpu_reset", 0, Pins("K5"), IOStandard("LVCMOS33")),
     ]
 
-    def __init__(self, toolchain="vivado", with_daughterboard=False):
+    def __init__(self, toolchain="vivado", with_daughterboard=False, with_core_resources=True):
         device = "xc7a35tftg256-1"
         io = _io
         connectors = _connectors
@@ -155,19 +155,20 @@ class Platform(XilinxPlatform):
             daughterboard = QMTechDaughterboard(IOStandard("LVCMOS33"))
             io += daughterboard.io
             connectors += daughterboard.connectors
-        else:
+        elif with_core_resources:
             io += self.core_resources
 
-        XilinxPlatform.__init__(self, device, io, connectors, toolchain=toolchain)
+        Xilinx7SeriesPlatform.__init__(self, device, io, connectors, toolchain=toolchain)
+
         self.toolchain.bitstream_commands = \
             ["set_property BITSTREAM.CONFIG.SPI_BUSWIDTH 4 [current_design]"]
         self.toolchain.additional_commands = \
             ["write_cfgmem -force -format bin -interface spix4 -size 16 "
-             "-loadbit \"up 0x0 {build_name}.bit\" -file {build_name}.bin"]
+            "-loadbit \"up 0x0 {build_name}.bit\" -file {build_name}.bin"]
+
         self.add_platform_command("set_property INTERNAL_VREF 0.675 [get_iobanks 15]")
         self.add_platform_command("set_property CFGBVS VCCO [current_design]")
         self.add_platform_command("set_property CONFIG_VOLTAGE 3.3 [current_design]")
-        self.toolchain.f4pga_device = device
 
     def create_programmer(self):
         bscan_spi = "bscan_spi_xc7a35t.bit"
@@ -175,5 +176,5 @@ class Platform(XilinxPlatform):
 
 
     def do_finalize(self, fragment):
-        XilinxPlatform.do_finalize(self, fragment)
+        Xilinx7SeriesPlatform.do_finalize(self, fragment)
         self.add_period_constraint(self.lookup_request("clk50", loose=True), 1e9/50e6)
