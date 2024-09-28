@@ -125,6 +125,7 @@ Some of the suported boards, see yours? Give LiteX-Boards a try!
     ├── digilent_basys3
     ├── digilent_cmod_a7
     ├── digilent_genesys2
+    ├── digilent_netfpga_sume
     ├── digilent_nexys4ddr
     ├── digilent_nexys4
     ├── digilent_nexys_video
@@ -162,6 +163,8 @@ Some of the suported boards, see yours? Give LiteX-Boards a try!
     ├── lambdaconcept_ecpix5
     ├── lambdaconcept_pcie_screamer_m2
     ├── lambdaconcept_pcie_screamer
+    ├── lattice_certuspro_nx_evn
+    ├── lattice_certuspro_nx_vvml
     ├── lattice_crosslink_nx_evn
     ├── lattice_crosslink_nx_vip
     ├── lattice_ecp5_evn

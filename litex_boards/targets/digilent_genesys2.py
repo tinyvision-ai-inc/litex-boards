@@ -13,6 +13,7 @@ from litex.gen import *
 from litex_boards.platforms import digilent_genesys2
 
 from litex.soc.cores.clock import *
+from litex.soc.integration.soc import SoCRegion
 from litex.soc.integration.soc_core import *
 from litex.soc.integration.builder import *
 from litex.soc.cores.led import LedChaser
@@ -50,6 +51,7 @@ class BaseSoC(SoCCore):
         with_ethernet   = False,
         with_etherbone  = False,
         with_led_chaser = True,
+        with_can        = False,
         **kwargs):
         platform = digilent_genesys2.Platform()
 
@@ -85,7 +87,16 @@ class BaseSoC(SoCCore):
         if with_led_chaser:
             self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
-                sys_clk_freq = sys_clk_freq)
+                sys_clk_freq = sys_clk_freq,
+            )
+
+        # CAN --------------------------------------------------------------------------------------
+        if with_can:
+            from litex.soc.cores.can.ctu_can_fd import CTUCANFD
+            self.platform.add_extension(digilent_genesys2.can_pmod_io("pmodc", 0))
+            self.can0 = CTUCANFD(platform, platform.request("can", 0))
+            self.bus.add_slave("can0", self.can0.bus, SoCRegion(origin=0xb0010000, size=0x10000, mode="rw", cached=False))
+            self.irq.add("can0")
 
 # Build --------------------------------------------------------------------------------------------
 
@@ -99,14 +110,17 @@ def main():
     sdopts = parser.target_group.add_mutually_exclusive_group()
     sdopts.add_argument("--with-spi-sdcard", action="store_true", help="Enable SPI-mode SDCard support.")
     sdopts.add_argument("--with-sdcard",     action="store_true", help="Enable SDCard support.")
+    parser.add_target_argument("--with-can", action="store_true", help="Enable CAN support (Through CTU-CAN-FD Core and SN65HVD230 'PMOD'.")
     args = parser.parse_args()
 
     soc = BaseSoC(
         sys_clk_freq   = args.sys_clk_freq,
         with_ethernet  = args.with_ethernet,
         with_etherbone = args.with_etherbone,
+        with_can       = args.with_can,
         **parser.soc_argdict
     )
+
     if args.with_spi_sdcard:
         soc.add_spi_sdcard()
     if args.with_sdcard:

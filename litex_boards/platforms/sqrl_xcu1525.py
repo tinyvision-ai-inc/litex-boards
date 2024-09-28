@@ -13,20 +13,24 @@ from litex.build.xilinx import XilinxUSPPlatform, VivadoProgrammer
 _io = [
     # Clk / Rst
     ("clk300", 0,
-        Subsignal("n", Pins("AY38"), IOStandard("DIFF_SSTL12")),
-        Subsignal("p", Pins("AY37"), IOStandard("DIFF_SSTL12")),
+        Subsignal("n", Pins("AY38")),
+        Subsignal("p", Pins("AY37")),
+        IOStandard("DIFF_SSTL12"),
     ),
     ("clk300", 1,
-        Subsignal("n", Pins("AW19"), IOStandard("DIFF_SSTL12")),
-        Subsignal("p", Pins("AW20"), IOStandard("DIFF_SSTL12")),
+        Subsignal("n", Pins("AW19")),
+        Subsignal("p", Pins("AW20")),
+        IOStandard("DIFF_SSTL12"),
     ),
     ("clk300", 2,
-        Subsignal("n", Pins("E32"), IOStandard("DIFF_SSTL12")),
-        Subsignal("p", Pins("F32"), IOStandard("DIFF_SSTL12")),
+        Subsignal("n", Pins("E32")),
+        Subsignal("p", Pins("F32")),
+        IOStandard("DIFF_SSTL12"),
     ),
     ("clk300", 3,
-        Subsignal("n", Pins("H16"), IOStandard("DIFF_SSTL12")),
-        Subsignal("p", Pins("J16"), IOStandard("DIFF_SSTL12")),
+        Subsignal("n", Pins("H16")),
+        Subsignal("p", Pins("J16")),
+        IOStandard("DIFF_SSTL12"),
     ),
 
     # Leds
@@ -257,6 +261,101 @@ _io = [
         Subsignal("reset_n", Pins("D21"), IOStandard("LVCMOS12")),
         Misc("SLEW=FAST")
     ),
+
+    # QSFP-0.
+    ("qsfp0_refclk_rst", 0, Pins("AT22"), IOStandard("LVCMOS12")),
+    ("qsfp0_modsell",    0, Pins("BE16"), IOStandard("LVCMOS12")),
+    ("qsfp0_resetl",     0, Pins("BE17"), IOStandard("LVCMOS12")),
+    ("qsfp0_modprsl",    0, Pins("BE20"), IOStandard("LVCMOS12")),
+    ("qsfp0_intl",       0, Pins("BE21"), IOStandard("LVCMOS12")),
+    ("qsfp0_lpmode",     0, Pins("BD18"), IOStandard("LVCMOS12")),
+    ("qsfp0_fs",         0, Pins("AT20 AU22"), IOStandard("LVCMOS12")),
+    ("qsfp0_refclk0", 0,
+        Subsignal("p", Pins("M11")),
+        Subsignal("n", Pins("M10")),
+    ),
+    ("qsfp0_refclk1", 0,
+        Subsignal("p", Pins("K11")),
+        Subsignal("n", Pins("K10")),
+    ),
+    ("qsfp0", 0,
+        Subsignal("txp", Pins("N9 M7 L9 K7")),
+        Subsignal("txn", Pins("N8 M6 L8 K6")),
+        Subsignal("rxp", Pins("N4 M2 L4 K2")),
+        Subsignal("rxn", Pins("N3 M1 L3 K1")),
+    ),
+    ("qsfp0_sfp0", 0,
+        Subsignal("txp", Pins("N9")),
+        Subsignal("txn", Pins("N8")),
+        Subsignal("rxp", Pins("N4")),
+        Subsignal("rxn", Pins("N3")),
+    ),
+    ("qsfp0_sfp1", 0,
+        Subsignal("txp", Pins("M7")),
+        Subsignal("txn", Pins("M6")),
+        Subsignal("rxp", Pins("M2")),
+        Subsignal("rxn", Pins("M1")),
+    ),
+    ("qsfp0_sfp2", 0,
+        Subsignal("txp", Pins("L9")),
+        Subsignal("txn", Pins("L8")),
+        Subsignal("rxp", Pins("L4")),
+        Subsignal("rxn", Pins("L3")),
+    ),
+    ("qsfp0_sfp3", 0,
+        Subsignal("txp", Pins("K7")),
+        Subsignal("txn", Pins("K6")),
+        Subsignal("rxp", Pins("K2")),
+        Subsignal("rxn", Pins("K1")),
+    ),
+
+    # QSFP-1.
+    ("qsfp1_refclk_rst", 0, Pins("AU20"), IOStandard("LVCMOS12")),
+    ("qsfp1_modsell",    0, Pins("AY20"), IOStandard("LVCMOS12")),
+    ("qsfp1_resetl",     0, Pins("BC18"), IOStandard("LVCMOS12")),
+    ("qsfp1_modprsl",    0, Pins("BC19"), IOStandard("LVCMOS12")),
+    ("qsfp1_intl",       0, Pins("AV21"), IOStandard("LVCMOS12")),
+    ("qsfp1_lpmode",     0, Pins("AV22"), IOStandard("LVCMOS12")),
+    ("qsfp1_fs",         0, Pins("AR22 AU20"), IOStandard("LVCMOS12")),
+    ("qsfp1_refclk0", 0,
+        Subsignal("p", Pins("T11")),
+        Subsignal("n", Pins("T10")),
+    ),
+    ("qsfp1_refclk1", 0,
+        Subsignal("p", Pins("P11")),
+        Subsignal("n", Pins("P10")),
+    ),
+    ("qsfp1", 0,
+        Subsignal("txp", Pins("U9 T7 R9 P7")),
+        Subsignal("txn", Pins("U8 T6 R8 P6")),
+        Subsignal("rxp", Pins("U4 T2 R4 P2")),
+        Subsignal("rxn", Pins("U3 T1 R3 P1")),
+    ),
+    ("qsfp1_sfp0", 0,
+        Subsignal("txp", Pins("U9")),
+        Subsignal("txn", Pins("U8")),
+        Subsignal("rxp", Pins("U4")),
+        Subsignal("rxn", Pins("U3")),
+    ),
+    ("qsfp1_sfp1", 0,
+        Subsignal("txp", Pins("T7")),
+        Subsignal("txn", Pins("T6")),
+        Subsignal("rxp", Pins("T2")),
+        Subsignal("rxn", Pins("T1")),
+    ),
+    ("qsfp1_sfp2", 0,
+        Subsignal("txp", Pins("R9")),
+        Subsignal("txn", Pins("R8")),
+        Subsignal("rxp", Pins("R4")),
+        Subsignal("rxn", Pins("R3")),
+    ),
+    ("qsfp1_sfp3", 0,
+        Subsignal("txp", Pins("P7")),
+        Subsignal("txn", Pins("P6")),
+        Subsignal("rxp", Pins("P2")),
+        Subsignal("rxn", Pins("P1")),
+    ),
+
 ]
 
 # Connectors ---------------------------------------------------------------------------------------
@@ -277,25 +376,31 @@ class Platform(XilinxUSPPlatform):
 
     def do_finalize(self, fragment):
         XilinxUSPPlatform.do_finalize(self, fragment)
+
         # For passively cooled boards, overheating is a significant risk if airflow isn't sufficient
         self.add_platform_command("set_property BITSTREAM.CONFIG.OVERTEMPSHUTDOWN ENABLE [current_design]")
+
         # Reduce programming time
         self.add_platform_command("set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]")
+
         # DDR4 memory channel C0 Clock constraint / Internal Vref
         self.add_period_constraint(self.lookup_request("clk300", 0, loose=True), 1e9/300e6)
         self.add_platform_command("set_property INTERNAL_VREF 0.84 [get_iobanks 40]")
         self.add_platform_command("set_property INTERNAL_VREF 0.84 [get_iobanks 41]")
         self.add_platform_command("set_property INTERNAL_VREF 0.84 [get_iobanks 42]")
+
         # DDR4 memory channel C1 Clock constraint / Internal Vref
         self.add_period_constraint(self.lookup_request("clk300", 1, loose=True), 1e9/300e6)
         self.add_platform_command("set_property INTERNAL_VREF 0.84 [get_iobanks 65]")
         self.add_platform_command("set_property INTERNAL_VREF 0.84 [get_iobanks 66]")
         self.add_platform_command("set_property INTERNAL_VREF 0.84 [get_iobanks 67]")
+
         # DDR4 memory channel C2 Clock constraint / Internal Vref
         self.add_period_constraint(self.lookup_request("clk300", 2, loose=True), 1e9/300e6)
         self.add_platform_command("set_property INTERNAL_VREF 0.84 [get_iobanks 46]")
         self.add_platform_command("set_property INTERNAL_VREF 0.84 [get_iobanks 47]")
         self.add_platform_command("set_property INTERNAL_VREF 0.84 [get_iobanks 48]")
+
         # DDR4 memory channel C3 Clock constraint / Internal Vref
         self.add_period_constraint(self.lookup_request("clk300", 3, loose=True), 1e9/300e6)
         self.add_platform_command("set_property INTERNAL_VREF 0.84 [get_iobanks 70]")

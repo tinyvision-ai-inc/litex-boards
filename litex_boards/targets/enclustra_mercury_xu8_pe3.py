@@ -3,7 +3,7 @@
 #
 # This file is part of LiteX-Boards.
 #
-# Copyright (c) 2020 Antmicro <www.antmicro.com>
+# Copyright (c) 2023-2024 Florent Kermarrec <florent@enjoy-digital.fr>
 # SPDX-License-Identifier: BSD-2-Clause
 
 from migen import *
@@ -11,7 +11,7 @@ from migen.genlib.resetsync import AsyncResetSynchronizer
 
 from litex.gen import *
 
-from litex_boards.platforms import enclustra_mercury_xu5
+from litex_boards.platforms import enclustra_mercury_xu8_pe3
 
 from litex.soc.cores.clock import *
 from litex.soc.integration.soc_core import *
@@ -20,6 +20,9 @@ from litex.soc.cores.led import LedChaser
 
 from litedram.modules import MT40A256M16
 from litedram.phy import usddrphy
+
+from litepcie.phy.usppciephy import USPPCIEPHY
+from litepcie.software import generate_litepcie_software
 
 # CRG ----------------------------------------------------------------------------------------------
 
@@ -42,10 +45,16 @@ class _CRG(LiteXModule):
 
         self.specials += [
             Instance("BUFGCE_DIV",
-                p_BUFGCE_DIVIDE=4,
-                i_CE=1, i_I=self.cd_pll4x.clk, o_O=self.cd_sys.clk),
+                p_BUFGCE_DIVIDE = 4,
+                i_CE = 1,
+                i_I  = self.cd_pll4x.clk,
+                o_O  = self.cd_sys.clk,
+            ),
             Instance("BUFGCE",
-                i_CE=1, i_I=self.cd_pll4x.clk, o_O=self.cd_sys4x.clk),
+                i_CE = 1,
+                i_I  = self.cd_pll4x.clk,
+                o_O  = self.cd_sys4x.clk,
+            ),
         ]
 
         self.idelayctrl = USIDELAYCTRL(cd_ref=self.cd_idelay, cd_sys=self.cd_sys)
@@ -53,48 +62,68 @@ class _CRG(LiteXModule):
 # BaseSoC ------------------------------------------------------------------------------------------
 
 class BaseSoC(SoCCore):
-    def __init__(self, sys_clk_freq=125e6, with_led_chaser=True, **kwargs):
-        platform = enclustra_mercury_xu5.Platform()
+    def __init__(self, sys_clk_freq=2006, with_pcie=False, with_led_chaser=True, **kwargs):
+        platform = enclustra_mercury_xu8_pe3.Platform()
 
         # CRG --------------------------------------------------------------------------------------
         self.crg = _CRG(platform, sys_clk_freq)
 
         # SoCCore ----------------------------------------------------------------------------------
-        SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX SoC on Enclustra Mercury XU5", **kwargs)
+        SoCCore.__init__(self, platform, sys_clk_freq, ident="LiteX SoC on Enclustra Mercury+ XU8/PE3", **kwargs)
+
+        # JTAGBone ---------------------------------------------------------------------------------
+        self.add_jtagbone()
+
+        # PCIe -------------------------------------------------------------------------------------
+        if with_pcie:
+            self.pcie_phy = USPPCIEPHY(platform, platform.request("pcie_x4"),
+                speed      = "gen3",
+                data_width = 128,
+                bar0_size  = 0x20000,
+            )
+            self.add_pcie(phy=self.pcie_phy, ndmas=1)
 
         # DDR4 SDRAM -------------------------------------------------------------------------------
         if not self.integrated_main_ram_size:
             self.ddrphy = usddrphy.USPDDRPHY(platform.request("ddram"),
                 memtype          = "DDR4",
                 sys_clk_freq     = sys_clk_freq,
-                iodelay_clk_freq = 500e6)
+                iodelay_clk_freq = 500e6,
+            )
             self.add_sdram("sdram",
                 phy           = self.ddrphy,
                 module        = MT40A256M16(sys_clk_freq, "1:4"),
-                l2_cache_size = kwargs.get("l2_size", 8192)
+                l2_cache_size = kwargs.get("l2_size", 8192),
             )
 
         # Leds -------------------------------------------------------------------------------------
         if with_led_chaser:
             self.leds = LedChaser(
                 pads         = platform.request_all("user_led"),
-                sys_clk_freq = sys_clk_freq)
+                sys_clk_freq = sys_clk_freq,
+            )
 
 # Build --------------------------------------------------------------------------------------------
 
 def main():
     from litex.build.parser import LiteXArgumentParser
-    parser = LiteXArgumentParser(platform=enclustra_mercury_xu5.Platform, description="LiteX SoC on Enclustra Mercury XU5.")
+    parser = LiteXArgumentParser(platform=enclustra_mercury_xu8_pe3.Platform, description="LiteX SoC on Enclustra Mercury+ XU8/PE3.")
     parser.add_target_argument("--sys-clk-freq", default=125e6, type=float, help="System clock frequency.")
+    parser.add_target_argument("--with-pcie",    action="store_true",       help="Enable PCIe support.")
+    parser.add_target_argument("--driver",       action="store_true",       help="Generate PCIe driver.")
     args = parser.parse_args()
 
     soc = BaseSoC(
          sys_clk_freq = args.sys_clk_freq,
+         with_pcie    = args.with_pcie,
          **parser.soc_argdict
     )
     builder = Builder(soc, **parser.builder_argdict)
     if args.build:
         builder.build(**parser.toolchain_argdict)
+
+    if args.driver:
+        generate_litepcie_software(soc, os.path.join(builder.output_dir, "driver"))
 
     if args.load:
         prog = soc.platform.create_programmer()

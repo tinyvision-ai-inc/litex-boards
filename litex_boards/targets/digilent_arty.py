@@ -83,6 +83,7 @@ class BaseSoC(SoCCore):
         with_spi_flash  = False,
         with_buttons    = False,
         with_pmod_gpio  = False,
+        with_can        = False,
         **kwargs):
         platform = digilent_arty.Platform(variant=variant, toolchain=toolchain)
 
@@ -182,6 +183,14 @@ class BaseSoC(SoCCore):
                 with_irq = self.irq.enabled
             )
 
+        # CAN --------------------------------------------------------------------------------------
+        if with_can:
+            from litex.soc.cores.can.ctu_can_fd import CTUCANFD
+            self.platform.add_extension(digilent_arty.can_pmod_io("pmodc", 0))
+            self.can0 = CTUCANFD(platform, platform.request("can", 0))
+            self.bus.add_slave("can0", self.can0.bus, SoCRegion(origin=0xb0010000, size=0x10000, mode="rw", cached=False))
+            self.irq.add("can0")
+
 # Build --------------------------------------------------------------------------------------------
 
 def main():
@@ -204,6 +213,7 @@ def main():
     parser.add_target_argument("--sdcard-adapter",                            help="SDCard PMOD adapter (digilent or numato).")
     parser.add_target_argument("--with-spi-flash", action="store_true",       help="Enable SPI Flash (MMAPed).")
     parser.add_target_argument("--with-pmod-gpio", action="store_true",       help="Enable GPIOs through PMOD.") # FIXME: Temporary test.
+    parser.add_target_argument("--with-can",       action="store_true",       help="Enable CAN support (Through CTU-CAN-FD Core and SN65HVD230 'PMOD'.")
     args = parser.parse_args()
 
     assert not (args.with_etherbone and args.eth_dynamic_ip)
@@ -222,8 +232,10 @@ def main():
         with_usb       = args.with_usb,
         with_spi_flash = args.with_spi_flash,
         with_pmod_gpio = args.with_pmod_gpio,
+        with_can       = args.with_can,
         **parser.soc_argdict
     )
+
     if args.sdcard_adapter == "numato":
         soc.platform.add_extension(digilent_arty._numato_sdcard_pmod_io)
     else:
